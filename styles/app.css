@@ -81,6 +81,7 @@ input[type="text"], input[type="number"], select {
 }
 
 input[aria-invalid="true"] { border-color: var(--fail); }
+.field .hint { grid-column: 1 / -1; margin: 0; }
 .field-error { grid-column: 1 / -1; margin: 0; color: var(--fail); font-size: var(--size-caption); }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

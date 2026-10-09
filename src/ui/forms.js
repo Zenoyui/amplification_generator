@@ -15,9 +15,9 @@ export function inputRow({ label, unit, text, onInput, wide = false, hint = null
     el('label', { for: id }, label),
     input,
     wide ? null : el('span', { class: 'unit' }, unitLabel(unit)),
+    hint ? el('p', { class: 'hint' }, hint) : null,
     errorLine,
   );
-  if (hint) row.after(el('p', { class: 'hint' }, hint));
   return {
     row,
     input,

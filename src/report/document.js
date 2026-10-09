@@ -42,7 +42,7 @@ function describeFeature(feature) {
   return { name: feature.name, text: parts.join('; ') };
 }
 
-function context(record, baseline, withDrawings, fingerprint) {
+function context(record, baseline, withDrawings, digest) {
   const { model } = buildModel(record.spec.templateId, record.spec.base, record.spec.features);
   const date = new Date();
   const pad = (v) => String(v).padStart(2, '0');
@@ -58,8 +58,10 @@ function context(record, baseline, withDrawings, fingerprint) {
     features: model.features.map(describeFeature),
     baseRows: model.baseSpecs.map((spec) => ({ label: spec.label, value: formatNumber(toDisplay(spec, model.base_m[spec.key]), 4), unit: unitLabel(spec.unit) })),
     supports: model.supports.map((s) => s.label),
-    fingerprint,
-    designation: `РП-${fingerprint.slice(0, 8).toUpperCase()}`,
+    fingerprint: digest.hex,
+    fingerprintName: digest.name,
+    designation: `РП-${digest.hex.slice(0, 8).toUpperCase()}`,
+    section: { comparison: 8, reliability: record.features.length > 0 && baseline && baseline !== record ? 9 : 8, limitations: record.features.length > 0 && baseline && baseline !== record ? 10 : 9 },
     year: String(date.getFullYear()),
     dateText: `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`,
     date,
@@ -72,7 +74,7 @@ function metadata(ctx) {
     subject: `Расчет прочности, документ ${ctx.designation}`,
     keywords: 'прочность, метод конечных элементов, усиления, запас прочности',
     created: ctx.date,
-    identifier: ctx.fingerprint.slice(0, 32),
+    identifier: ctx.fingerprint.slice(0, 32).padEnd(32, '0'),
   };
 }
 
@@ -126,8 +128,8 @@ function placeholderEntries(ctx) {
     ['1', 'Область применения'], ['2', 'Нормативные ссылки'], ['3', 'Термины и определения'], ['4', 'Исходные данные'], ['5', 'Расчетная модель'],
     ['6', 'Критерии прочности'], ['7', 'Результаты расчета'],
   ];
-  if (ctx.baseline) rows.push(['8', 'Сравнение с изделием без усилений']);
-  rows.push(['9', 'Достоверность результата'], ['10', 'Ограничения']);
+  if (ctx.baseline) rows.push([String(ctx.section.comparison), 'Сравнение с изделием без усилений']);
+  rows.push([String(ctx.section.reliability), 'Достоверность результата'], [String(ctx.section.limitations), 'Ограничения']);
   if (ctx.withDrawings) rows.push(['', 'Приложение А (обязательное) Чертежи']);
   rows.push(['', 'Библиография']);
   return rows.map(([number, text]) => ({ level: 1, number, text, pageIndex: 0 }));
@@ -137,8 +139,8 @@ function placeholderEntries(ctx) {
 // viewport: provides the display mesh. Returns Uint8Array with the PDF.
 export async function buildReport({ record, baseline, withDrawings, viewport, onStatus }) {
   onStatus('Подготовка данных');
-  const fingerprint = await digestHex(JSON.stringify({ spec: record.spec, setup: record.setup, required: record.required }));
-  const ctx = context(record, baseline, withDrawings, fingerprint);
+  const digest = await digestHex(JSON.stringify({ spec: record.spec, setup: record.setup, required: record.required }));
+  const ctx = context(record, baseline, withDrawings, digest);
   const fontBytes = await loadFonts();
 
   onStatus('Рисунки результата');

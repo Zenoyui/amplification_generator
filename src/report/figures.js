@@ -6,7 +6,7 @@ import { fieldColors } from '../render/colors.js';
 import { COLORS, hexToRgb } from '../ui/tokens.js';
 import { resultField } from './fields.js';
 
-export const FIGURE_PIXELS = [2400, 1426];
+const FIGURE_PIXELS = [2400, 1426];
 // Margin around the drawn model as a fraction of its larger side, and legend strip height as a fraction of the width
 const CROP_MARGIN = 0.04;
 const LEGEND_STRIP = 0.085;

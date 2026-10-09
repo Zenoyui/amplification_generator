@@ -92,7 +92,10 @@ export class Viewport {
     canvas.addEventListener('pointerdown', (e) => this.#down(e));
     canvas.addEventListener('pointermove', (e) => this.#move(e));
     canvas.addEventListener('pointerup', (e) => this.#up(e));
-    canvas.addEventListener('pointercancel', (e) => this.pointers.delete(e.pointerId));
+    canvas.addEventListener('pointercancel', (e) => {
+      this.pointers.delete(e.pointerId);
+      this.drag = null;
+    });
     window.addEventListener('keydown', (e) => {
       if (e.key === 'F6') {
         e.preventDefault();

@@ -29,7 +29,7 @@ function faceCorners(face) {
 
 // Zone hit at canvas point (x, y) for camera axes, or null. Returns { face, direction } where direction is the
 // vector from the cube center to the zone (the camera goes there).
-export function hitTest(axes, x, y) {
+function hitTest(axes, x, y) {
   const visible = FACES.filter((f) => -dot(f.normal, axes.forward) > 1e-6).sort((a, b) => dot(a.normal, axes.forward) - dot(b.normal, axes.forward));
   for (const face of visible) {
     const corners = faceCorners(face).map((p) => toScreen(axes, p));

@@ -13,10 +13,11 @@ export function renderResult(container, summary, comparison) {
     [TEXT.result.rows.displacement, `${formatNumber(summary.maxDisplacement_mm, 3)} мм, точка ${point(summary.displacementPoint_m)}`],
     [`${TEXT.result.rows.stress} (теория ${summary.primaryId})`, `${formatNumber(summary.peakStress_mpa, 3)} МПа, точка ${point(summary.peakPoint_m)}`],
     [TEXT.result.rows.safety, formatSafety(summary.safety)],
+    ...(summary.rawAbove ? [[TEXT.result.rows.rawPeak, `${formatNumber(summary.rawPeak_mpa, 3)} МПа, точка ${point(summary.rawPeakPoint_m)}`], [TEXT.result.rows.rawSafety, summary.rawSafety === null ? 'нет данных' : formatSafety(summary.rawSafety)]] : []),
     [TEXT.result.rows.required, formatNumber(summary.requiredSafety, 3)],
   ];
   container.append(
-    el('div', { class: `verdict ${summary.passes ? 'ok' : 'fail'}` }, `${summary.passes ? TEXT.result.passed : TEXT.result.failed}`),
+    el('div', { class: `verdict ${summary.passes ? 'ok' : 'fail'}` }, summary.valid ? (summary.passes ? TEXT.result.passed : TEXT.result.failed) : `${TEXT.result.invalid}: ${summary.invalidReason}`),
     el('table', {}, el('tbody', {}, rows.map(([name, text]) => el('tr', {}, el('th', {}, name), el('td', {}, text))))),
   );
   if (comparison) container.append(renderComparison(comparison));
@@ -68,6 +69,7 @@ function renderComparison(comparison) {
     ['Максимальное перемещение, мм', comparison.before.maxDisplacement_mm, comparison.after.maxDisplacement_mm, formatNumber],
     ['Максимальное напряжение, МПа', comparison.before.peakStress_mpa, comparison.after.peakStress_mpa, formatNumber],
     ['Запас прочности', comparison.before.safety, comparison.after.safety, formatSafety],
+    ['Напряжение у закрепления без исключения зоны, МПа', comparison.before.rawPeak_mpa, comparison.after.rawPeak_mpa, formatNumber],
   ];
   return el(
     'div',

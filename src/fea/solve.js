@@ -26,7 +26,7 @@ const MAX_HALVINGS = 5;
 const MAX_REPLAN = 4;
 const REPLAN_MARGIN = 1.02;
 // Reported equilibrium error above this relative level marks the result unreliable
-export const EQUILIBRIUM_LIMIT = 1e-5;
+const EQUILIBRIUM_LIMIT = 1e-5;
 
 export class SolveError extends Error {
   constructor(code, message, details = {}) {
@@ -66,7 +66,7 @@ function countActiveCells(weight) {
   return count;
 }
 
-export function nodePosition(grid, n) {
+function nodePosition(grid, n) {
   const [nx, ny] = grid.counts;
   const i = n % (nx + 1);
   const rest = (n - i) / (nx + 1);

@@ -16,9 +16,5 @@ export function el(tag, attributes = {}, ...children) {
   return node;
 }
 
-export function clear(node) {
-  while (node.firstChild) node.removeChild(node.firstChild);
-}
-
 let counter = 0;
 export const uniqueId = (prefix) => `${prefix}-${++counter}`;

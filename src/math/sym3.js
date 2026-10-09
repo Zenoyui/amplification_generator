@@ -32,10 +32,3 @@ export function principalValues(sxx, syy, szz, sxy, syz, sxz) {
   return [s1, s2, s3];
 }
 
-// Von Mises equivalent from components
-export function vonMises(sxx, syy, szz, sxy, syz, sxz) {
-  const a = sxx - syy;
-  const b = syy - szz;
-  const c = szz - sxx;
-  return Math.sqrt(0.5 * (a * a + b * b + c * c) + 3 * (sxy * sxy + syz * syz + sxz * sxz));
-}

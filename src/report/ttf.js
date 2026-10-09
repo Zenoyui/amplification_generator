@@ -9,7 +9,7 @@ const COMPOSITE_TWO_BY_TWO = 0x0080;
 const POST_VERSION_3 = 0x00030000;
 const MAX_COMPONENTS = 64;
 
-export class TtfError extends Error {}
+class TtfError extends Error {}
 
 export class TrueTypeFont {
   constructor(bytes) {

@@ -1,7 +1,7 @@
 // Preconditioned conjugate gradients with the multigrid V-cycle as preconditioner
 
-export const DEFAULT_TOLERANCE = 1e-8;
-export const DEFAULT_MAX_ITERATIONS = 200;
+const DEFAULT_TOLERANCE = 1e-8;
+const DEFAULT_MAX_ITERATIONS = 200;
 
 const dotProduct = (a, b) => {
   let acc = 0;

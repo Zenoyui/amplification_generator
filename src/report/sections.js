@@ -10,7 +10,7 @@ const MPA = 1e6;
 const point = (p) => (p ? `(${p.map((v) => formatNumber(v * MM, 3)).join('; ')}) мм` : 'нет данных');
 const vector = (v) => `(${v.map((c) => formatNumber(c, 3)).join('; ')})`;
 
-export const BIBLIOGRAPHY = [
+const BIBLIOGRAPHY = [
   'Parvizian J., Duster A., Rank E. Finite cell method: h- and p-extension for embedded domain problems in solid mechanics. Computational Mechanics, 2007, vol. 41, no. 1, pp. 121-133.',
   'Amir O., Aage N., Lazarov B.S. On multigrid-CG for efficient topology optimization. Structural and Multidisciplinary Optimization, 2014, vol. 49, no. 5, pp. 815-829.',
   'Taylor R.L., Beresford P.J., Wilson E.L. A non-conforming element for stress analysis. International Journal for Numerical Methods in Engineering, 1976, vol. 10, pp. 1211-1219.',
@@ -43,9 +43,9 @@ const MATERIAL_STANDARDS = {
 export function writeScope(ts, ctx) {
   ts.heading(1, '1', 'Область применения');
   ts.paragraph(`Документ содержит результаты статического расчета на прочность изделия "${ctx.templateName}" при заданной нагрузке: перемещения, напряжения и запасы прочности по пяти теориям прочности.`);
-  if (ctx.baseline) ts.paragraph('Расчет выполнен для исходного изделия и для изделия с усилениями. Сопоставление приведено в разделе 8.');
+  if (ctx.baseline) ts.paragraph(`Расчет выполнен для исходного изделия и для изделия с усилениями. Сопоставление приведено в разделе ${ctx.section.comparison}.`);
   if (ctx.withDrawings) ts.paragraph('Приложение А содержит чертежи изделия в проекциях и в аксонометрии.');
-  ts.paragraph('Границы применимости результатов: раздел 10.');
+  ts.paragraph(`Границы применимости результатов: раздел ${ctx.section.limitations}.`);
 }
 
 export function writeReferences(ts, ctx) {
@@ -91,8 +91,8 @@ export function writeInput(ts, ctx) {
     ['Коэффициент Пуассона', formatNumber(m.poisson, 3), ''],
     ['Плотность', formatNumber(m.density_kgpm3, 4), 'кг/м3'],
   ];
-  if (m.kind === 'ductile') rows.push(['Предел текучести', formatNumber(m.yield_pa / MPA, 4), 'МПа']);
-  rows.push(['Предел прочности при растяжении', formatNumber(m.tensile_pa / MPA, 4), 'МПа'], ['Предел прочности при сжатии', formatNumber(m.compressive_pa / MPA, 4), 'МПа']);
+  if (m.kind === 'ductile') rows.push(['Предел текучести (при растяжении и сжатии)', formatNumber(m.yield_pa / MPA, 4), 'МПа']);
+  else rows.push(['Предел прочности при растяжении', formatNumber(m.tensile_pa / MPA, 4), 'МПа'], ['Предел прочности при сжатии', formatNumber(m.compressive_pa / MPA, 4), 'МПа']);
   ts.table({ columns: [{ width: 90 }, { width: 50, align: 'right' }, { width: 30 }], header: ['Характеристика', 'Значение', 'Единица'], rows, caption: 'Характеристики материала' });
   const basis = { min: 'минимальные значения стандарта', typical: 'типовые значения каталога, не гарантированные минимумы', estimate: 'значения заданы без источника' }[m.strengthBasis];
   ts.paragraph(`Источник прочностных характеристик: ${m.strengthSource}. Основание: ${basis}.`);
@@ -140,7 +140,7 @@ export function writeInput(ts, ctx) {
 export function writeModel(ts, ctx) {
   ts.heading(1, '5', 'Расчетная модель');
   ts.heading(2, '5.1', 'Метод');
-  ts.paragraph('Метод конечных элементов, линейная упругость, малые перемещения, статическое нагружение. Элемент: прямоугольный восьмиузловой с девятью несогласованными модами (Taylor, Beresford, Wilson [3]), стационарная сетка из одинаковых ячеек.');
+  ts.paragraph('Метод конечных элементов, линейная упругость, малые перемещения, статическое нагружение. Элемент: прямоугольный восьмиузловой с девятью несогласованными модами (Taylor, Beresford, Wilson [3]), регулярная сетка из одинаковых ячеек.');
   ts.paragraph('Граница изделия не совпадает с гранями ячеек: ячейка, пересеченная поверхностью, интегрируется по 64 подъячейкам с долей материала в каждой (метод конечных ячеек, Parvizian, Duster, Rank [1]). К пересеченным ячейкам добавлена жесткость 0,1 % от жесткости целой ячейки, чтобы узлы в пустоте оставались связанными.');
   ts.paragraph('Система уравнений решена методом сопряженных градиентов с геометрическим многосеточным предобусловливателем (Amir, Aage, Lazarov [2]); на грубейшем уровне применено прямое разложение.');
   ts.heading(2, '5.2', 'Сетка и решение');
@@ -189,18 +189,19 @@ export function writeResults(ts, ctx, figures) {
   const s = ctx.summary;
   ts.heading(1, '7', 'Результаты расчета');
   ts.heading(2, '7.1', 'Основные результаты');
-  ts.table({
-    columns: [{ width: 85 }, { width: 85 }],
-    header: ['Показатель', 'Значение'],
-    rows: [
-      ['Максимальное перемещение', `${formatNumber(s.maxDisplacement_mm, 4)} мм в точке ${point(s.displacementPoint_m)}`],
-      [`Наибольшее эквивалентное напряжение (теория ${s.primaryId})`, `${formatNumber(s.peakStress_mpa, 4)} МПа в точке ${point(s.peakPoint_m)}`],
-      ['Запас прочности', formatSafety(s.safety)],
-      ['Требуемый запас прочности', formatNumber(s.requiredSafety, 3)],
-    ],
-    caption: 'Основные результаты',
-  });
-  ts.paragraph(`Условие прочности по теории ${s.primaryId}: запас ${formatSafety(s.safety)} при требуемом ${formatNumber(s.requiredSafety, 3)} - **${s.passes ? 'выполнено' : 'не выполнено'}**.`);
+  const rows = [
+    ['Максимальное перемещение', `${formatNumber(s.maxDisplacement_mm, 4)} мм в точке ${point(s.displacementPoint_m)}`],
+    [`Наибольшее эквивалентное напряжение (теория ${s.primaryId})`, `${formatNumber(s.peakStress_mpa, 4)} МПа в точке ${point(s.peakPoint_m)}`],
+    ['Запас прочности', formatSafety(s.safety)],
+  ];
+  if (s.rawAbove) {
+    rows.push(['Напряжение (теория IV) у закрепления или площадки без исключения зоны', `${formatNumber(s.rawPeak_mpa, 4)} МПа в точке ${point(s.rawPeakPoint_m)}`]);
+    rows.push(['Запас по этому напряжению', s.rawSafety === null ? 'нет данных' : formatSafety(s.rawSafety)]);
+  }
+  rows.push(['Требуемый запас прочности', formatNumber(s.requiredSafety, 3)]);
+  ts.table({ columns: [{ width: 85 }, { width: 85 }], header: ['Показатель', 'Значение'], rows, caption: 'Основные результаты' });
+  if (!s.valid) ts.paragraph(`Вывод о прочности не сформирован: ${s.invalidReason}.`);
+  else ts.paragraph(`Условие прочности по теории ${s.primaryId}: запас ${formatSafety(s.safety)} при требуемом ${formatNumber(s.requiredSafety, 3)} - **${s.passes ? 'выполнено.' : 'не выполнено.'}**`);
   ts.heading(2, '7.2', 'Поля перемещений, напряжений и запаса прочности');
   ts.paragraph('Поля приведены на поверхности изделия. Область вокруг закрепления и площадки нагрузки (один слой ячеек) исключена из определения наибольшего напряжения.');
   for (const figure of figures) {
@@ -220,7 +221,7 @@ export function writeResults(ts, ctx, figures) {
 }
 
 export function writeComparison(ts, ctx) {
-  ts.heading(1, '8', 'Сравнение с изделием без усилений');
+  ts.heading(1, String(ctx.section.comparison), 'Сравнение с изделием без усилений');
   const a = ctx.baseline;
   const b = ctx.summary;
   const rows = [
@@ -228,9 +229,10 @@ export function writeComparison(ts, ctx) {
     ['Максимальное перемещение, мм', formatNumber(a.maxDisplacement_mm, 4), formatNumber(b.maxDisplacement_mm, 4)],
     [`Наибольшее эквивалентное напряжение (теория ${b.primaryId}), МПа`, formatNumber(a.peakStress_mpa, 4), formatNumber(b.peakStress_mpa, 4)],
     ['Запас прочности', formatSafety(a.safety), formatSafety(b.safety)],
+    ['Напряжение у закрепления без исключения зоны (теория IV), МПа', formatNumber(a.rawPeak_mpa, 4), formatNumber(b.rawPeak_mpa, 4)],
   ].map(([name, x, y], i) => {
-    const before = [a.mass_kg, a.maxDisplacement_mm, a.peakStress_mpa, a.safety][i];
-    const after = [b.mass_kg, b.maxDisplacement_mm, b.peakStress_mpa, b.safety][i];
+    const before = [a.mass_kg, a.maxDisplacement_mm, a.peakStress_mpa, a.safety, a.rawPeak_mpa][i];
+    const after = [b.mass_kg, b.maxDisplacement_mm, b.peakStress_mpa, b.safety, b.rawPeak_mpa][i];
     const change = Number.isFinite(before) && Number.isFinite(after) ? formatPercent((after - before) / before) : 'нет данных';
     return [name, x, y, change];
   });
@@ -240,13 +242,13 @@ export function writeComparison(ts, ctx) {
     rows,
     caption: 'Сравнение вариантов',
   });
-  ts.paragraph(`Усиления добавляют ${formatPercent(b.mass_kg / a.mass_kg - 1)} к массе. Условие прочности для варианта с усилениями: ${b.passes ? 'выполнено' : 'не выполнено'}.`);
+  ts.paragraph(`Усиления добавляют ${formatPercent(b.mass_kg / a.mass_kg - 1)} к массе. Условие прочности для варианта с усилениями: ${b.valid ? (b.passes ? 'выполнено' : 'не выполнено') : 'вывод не сформирован'}.`);
 }
 
 export function writeReliability(ts, ctx) {
   const c = ctx.summary.control;
-  ts.heading(1, '9', 'Достоверность результата');
-  ts.heading(2, '9.1', 'Контроль решения');
+  ts.heading(1, String(ctx.section.reliability), 'Достоверность результата');
+  ts.heading(2, `${ctx.section.reliability}.1`, 'Контроль решения');
   const rows = [
     ['Невязка равновесия: сумма реакций и приложенных сил, отнесенная к приложенной силе', c.equilibrium.toExponential(1).replace('.', ',')],
     ['Приложенная сила, Н (x; y; z)', `(${c.applied_n.map((v) => formatNumber(v, 4)).join('; ')})`],
@@ -264,7 +266,7 @@ export function writeReliability(ts, ctx) {
     ts.paragraph('Замечания к результату:', { indent: 12.5 });
     ts.list(ctx.summary.notes.map((n) => n.text));
   } else ts.paragraph('Замечаний к решению нет.');
-  ts.heading(2, '9.2', 'Проверка метода на эталонных задачах');
+  ts.heading(2, `${ctx.section.reliability}.2`, 'Проверка метода на эталонных задачах');
   ts.table({
     columns: [{ width: 62 }, { width: 58 }, { width: 50 }],
     header: ['Задача', 'Эталон', 'Отклонение метода'],
@@ -282,7 +284,7 @@ export function writeReliability(ts, ctx) {
 }
 
 export function writeLimitations(ts, ctx) {
-  ts.heading(1, '10', 'Ограничения');
+  ts.heading(1, String(ctx.section.limitations), 'Ограничения');
   ts.list([
     'Расчет линейный: пластическое течение, потеря устойчивости, контакт, усталость, удар, температура и ползучесть не учтены.',
     'Нагрузка одна, статическая; собственный вес направлен вниз по оси Z.',

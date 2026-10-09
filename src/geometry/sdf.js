@@ -4,7 +4,7 @@
 const AXES = { x: 0, y: 1, z: 2 };
 
 // Box with center and half sizes (3-vectors)
-export function box(center_m, half_m) {
+function box(center_m, half_m) {
   const [cx, cy, cz] = center_m;
   const [hx, hy, hz] = half_m;
   return (x, y, z) => {

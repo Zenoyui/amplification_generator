@@ -6,7 +6,7 @@ import { NODE_DOFS } from './element.js';
 import { bandCholeskyFactor, bandCholeskySolve, bandIndex, CholeskyError } from '../math/dense.js';
 
 // Coarsest level is factored directly when n * bandwidth^2 is at most this (flops of the band factorization)
-export const COARSE_COST_LIMIT = 3e8;
+const COARSE_COST_LIMIT = 3e8;
 // Axis is halved only while it has at least this many cells and an even count
 const MIN_CELLS_TO_HALVE = 4;
 // Chebyshev smoother: polynomial degree, smoothed band is [lambdaMax / SMOOTH_RATIO, lambdaMax]

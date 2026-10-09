@@ -12,7 +12,7 @@ export function formatNumber(amount, digits = 3) {
 export const formatPercent = (ratio) => `${(ratio * 100).toFixed(1).replace('.', ',')} %`;
 
 // Safety factors above this are shown as a bound
-export const SAFETY_DISPLAY_LIMIT = 100;
+const SAFETY_DISPLAY_LIMIT = 100;
 export const formatSafety = (n) => (n > SAFETY_DISPLAY_LIMIT ? 'более 100' : formatNumber(n, 3));
 
 // Display text of unit symbols used in parameter specs

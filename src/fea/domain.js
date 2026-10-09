@@ -58,7 +58,6 @@ export function reachableFromSupport(counts, weight, supportNodes) {
   return { reached, dropped };
 }
 
-// Nodes belonging to at least one active cell
 export function activeNodes(counts, weight) {
   const [nx, ny, nz] = counts;
   const mask = new Uint8Array((nx + 1) * (ny + 1) * (nz + 1));

@@ -6,8 +6,8 @@ import { choleskyFactor, choleskySolve, CholeskyError } from '../math/dense.js';
 
 const GAUSS = 1 / Math.sqrt(3);
 export const NODE_DOFS = 24;
-export const GAUSS_POINTS = 8;
-export const MODE_COUNT = 9;
+const GAUSS_POINTS = 8;
+const MODE_COUNT = 9;
 export const SUB_CUBES = 64;
 // Added to the diagonal of the mode matrix, relative to its mean diagonal, for cells with little material
 const MODE_REGULARIZATION = 1e-9;

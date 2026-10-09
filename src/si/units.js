@@ -10,7 +10,7 @@ export class SiError extends Error {
 
 const BASE_SYMBOLS = ['m', 'kg', 's', 'A', 'K', 'mol', 'cd'];
 
-export class Dim {
+class Dim {
   constructor(exponents) {
     if (exponents.length !== BASE_SYMBOLS.length || !exponents.every(Number.isInteger)) {
       throw new SiError('bad dim (need 7 integer exponents)', { exponents });
@@ -106,7 +106,7 @@ for (const unit of UNIT_TABLE) {
   for (const alias of unit.aliases) UNIT_BY_ALIAS.set(alias, unit);
 }
 
-export function findUnit(text) {
+function findUnit(text) {
   const unit = UNIT_BY_ALIAS.get(text);
   if (!unit) throw new SiError(`unit unknown (text=${text})`, { text });
   return unit;
@@ -178,15 +178,3 @@ export function parseQuantity(text, defaultUnit) {
   return Quantity.of(amount, match[2] === '' ? defaultUnit : match[2]);
 }
 
-// Parses text and requires the dimension of defaultUnit
-export function parseAs(text, defaultUnit) {
-  const quantity = parseQuantity(text, defaultUnit);
-  const want = findUnit(defaultUnit).dim;
-  if (!want.equals(quantity.dim)) {
-    throw new SiError(`unit mismatch (want=${want}, got=${quantity.dim})`, {
-      want: want.toString(),
-      got: quantity.dim.toString(),
-    });
-  }
-  return quantity;
-}

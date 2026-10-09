@@ -21,16 +21,16 @@ export const DIRECTIONS = [
   { id: '+z', label: 'Вдоль +Z (вверх)' },
 ];
 
-export const GRAVITY_DIRECTION = [0, 0, -1];
+const GRAVITY_DIRECTION = [0, 0, -1];
 // Cells across the thinnest feature and per smallest radius that the cell size aims at
 const CELLS_ACROSS_FEATURE = 3;
 const CELLS_PER_RADIUS = 5;
 // Share of boundary cells on top of the interior cell count when estimating active cells
 const BOUNDARY_FACTOR = 1.3;
 // Samples per axis for the solid volume estimate
-const VOLUME_SAMPLES = 32;
+const VOLUME_SAMPLES = 48;
 // Cell size ratio of the coarse solve in the convergence check
-export const CHECK_RATIO = 1.5;
+const CHECK_RATIO = 1.5;
 // Default load patch radius as a share of the largest model dimension, and its floor
 const PATCH_SHARE = 0.02;
 const PATCH_FLOOR_M = 0.0025;
@@ -50,19 +50,36 @@ export function directionVector(directionId, outwardNormal) {
   }
 }
 
-// Material volume in m3 by regular sampling of the signed distance field
-export function estimateSolidVolume(model) {
-  const { min, max } = model.bounds_m;
+// Samples the model bounds on a regular grid; calls visit(x, y, z) for every sample point
+function sampleBounds(bounds_m, visit) {
+  const { min, max } = bounds_m;
   const step = [0, 1, 2].map((a) => (max[a] - min[a]) / VOLUME_SAMPLES);
-  let inside = 0;
   for (let k = 0; k < VOLUME_SAMPLES; k++) {
     for (let j = 0; j < VOLUME_SAMPLES; j++) {
-      for (let i = 0; i < VOLUME_SAMPLES; i++) {
-        if (model.sdf(min[0] + (i + 0.5) * step[0], min[1] + (j + 0.5) * step[1], min[2] + (k + 0.5) * step[2]) < 0) inside++;
-      }
+      for (let i = 0; i < VOLUME_SAMPLES; i++) visit(min[0] + (i + 0.5) * step[0], min[1] + (j + 0.5) * step[1], min[2] + (k + 0.5) * step[2]);
     }
   }
-  return inside * step[0] * step[1] * step[2];
+  return step[0] * step[1] * step[2];
+}
+
+// Material volume in m3 by regular sampling of the signed distance field
+function estimateSolidVolume(model) {
+  let inside = 0;
+  const cell_m3 = sampleBounds(model.bounds_m, (x, y, z) => {
+    if (model.sdf(x, y, z) < 0) inside++;
+  });
+  return inside * cell_m3;
+}
+
+// Added volume of a model with reinforcements relative to the model without them; both sampled at the same points
+export function estimateAddedShare(model, baseModel) {
+  let withFeatures = 0;
+  let without = 0;
+  sampleBounds(model.bounds_m, (x, y, z) => {
+    if (model.sdf(x, y, z) < 0) withFeatures++;
+    if (baseModel.sdf(x, y, z) < 0) without++;
+  });
+  return without > 0 ? withFeatures / without - 1 : 0;
 }
 
 export function chooseCellSize(model, qualityId) {
@@ -74,8 +91,7 @@ export function chooseCellSize(model, qualityId) {
   return { cellSize_m: Math.min(budget_m, featureLimit_m, radiusLimit_m), maxCells: quality.maxGrid, maxActiveCells: quality.maxActive };
 }
 
-// Default patch radius for a model
-export function defaultPatchRadius(model) {
+function defaultPatchRadius(model) {
   const size_m = model.bounds_m.max.map((hi, a) => hi - model.bounds_m.min[a]);
   return Math.max(PATCH_FLOOR_M, PATCH_SHARE * Math.max(...size_m));
 }
@@ -132,12 +148,12 @@ export function analyze(model, setup, onProgress = () => {}) {
     const governing = main.summary.governing[0];
     const peakFine = main.summary.theories[governing].peakEquivalent_pa;
     const peakCoarse = coarse.summary.theories[governing].peakEquivalent_pa;
-    convergence = {
-      coarseCell_m: coarse.grid.cell_m,
-      displacementChange: (main.summary.maxDisplacement_m - coarse.summary.maxDisplacement_m) / main.summary.maxDisplacement_m,
-      stressChange: peakFine > 0 ? (peakFine - peakCoarse) / peakFine : 0,
-      coarseConverged: coarse.status.converged,
-    };
+    if (coarse.status.converged) {
+      convergence = {
+        displacementChange: (main.summary.maxDisplacement_m - coarse.summary.maxDisplacement_m) / main.summary.maxDisplacement_m,
+        stressChange: peakFine > 0 ? (peakFine - peakCoarse) / peakFine : 0,
+      };
+    }
   }
   const cell_m = main.grid.cell_m;
   const hMax = Math.max(...cell_m);

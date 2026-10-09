@@ -3,7 +3,7 @@
 import { SOLID_WEIGHT } from './grid.js';
 import { gaussStress } from './element.js';
 
-export const STRESS_COMPONENTS = 6;
+const STRESS_COMPONENTS = 6;
 
 // uHat: displacement solving the E = 1 system (3 per node). Returns nodal averaged stress tensor
 // (6 per node, Pa) and count of contributing cells per node.

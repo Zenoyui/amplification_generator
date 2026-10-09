@@ -5,7 +5,7 @@ import { COLORS, hexToRgb } from '../ui/tokens.js';
 
 export const MARGIN = { left: 25, right: 15, top: 22, bottom: 22 };
 export const TEXT_WIDTH = PAGE_WIDTH_MM - MARGIN.left - MARGIN.right;
-export const BODY_SIZE = 11;
+const BODY_SIZE = 11;
 const LINE_HEIGHT = 5.1;
 const INDENT = 12.5;
 const TABLE_SIZE = 9.5;
@@ -160,7 +160,8 @@ export class Typesetter {
   heading(level, number, text, { record = true, center = false } = {}) {
     const size = level === 1 ? 13 : 11;
     const before = level === 1 ? 7 : 4;
-    const height = before + LINE_HEIGHT * 1.2 + LINE_HEIGHT * 3;
+    // room for the text that follows: a section opens with a subsection heading and a table
+    const height = before + LINE_HEIGHT * 1.2 + LINE_HEIGHT * (level === 1 ? 9 : 5);
     this.ensure(height);
     this.y += before;
     const label = number ? `${number}  ${text}` : text;

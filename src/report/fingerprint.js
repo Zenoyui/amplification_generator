@@ -7,14 +7,14 @@ function fnv1a(text) {
     h ^= BigInt(byte);
     h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
   }
-  return h.toString(16).padStart(16, '0').repeat(4);
+  return h.toString(16).padStart(16, '0');
 }
 
-// Hex digest (64 characters) of the text
+// Hex digest of the text and its algorithm name: SHA-256 (64 characters) or FNV-1a (16 characters)
 export async function digestHex(text) {
   if (globalThis.crypto && crypto.subtle) {
     const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-    return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return { hex: [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join(''), name: 'SHA-256' };
   }
-  return fnv1a(text);
+  return { hex: fnv1a(text), name: 'FNV-1a 64' };
 }

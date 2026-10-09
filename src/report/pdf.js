@@ -39,7 +39,7 @@ async function deflate(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-export class PdfFont {
+class PdfFont {
   constructor(name, ttf) {
     this.name = name;
     this.ttf = ttf;

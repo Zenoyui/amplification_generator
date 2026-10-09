@@ -449,7 +449,7 @@ function titleBlock(page, font, info) {
   for (let r = 1; r <= 4; r++) grid(x0, y0 + 5 * r, x0 + 65, y0 + 5 * r);
   for (const c of [1, 2, 3, 4]) grid(cols[c], y0, cols[c], y0 + 25);
   main(x0, y0 + 25, x0 + 65, y0 + 25);
-  const headers = ['Изм.', 'Лист', '№ докум.', 'Подп.', 'Дата'];
+  const headers = ['Изм.', 'Лист', 'N докум.', 'Подп.', 'Дата'];
   headers.forEach((text, i) => cell(text, cols[i], y0 + 20, cols[i + 1] - cols[i], 5, 2.5));
   for (let r = 1; r <= 5; r++) grid(x0, y0 + 25 + 5 * r, x0 + 65, y0 + 25 + 5 * r);
   grid(cols[3], y0 + 25, cols[3], y1);
@@ -481,7 +481,8 @@ function titleBlock(page, font, info) {
   cell(info.subname, rx, y0 + 27, nameWidth, 8, 3.5);
   grid(rx + 65, y0 + 35, rx + 65, y1);
   grid(rx, y0 + 45, rx + 65, y0 + 45);
-  cell(info.material, rx, y0 + 35, 65, 10, 3.5);
+  const materialLines = wrapText(font, info.material, 3, 61);
+  materialLines.slice(0, 2).forEach((line, i) => drawText(page, font, line, rx + 1.5, y0 + 35 + (materialLines.length > 1 ? 4.2 + 4 * i : 6.2), 3));
   cell(info.organization, rx, y0 + 45, 65, 10, 3.5);
   const sheetX = rx + 65;
   grid(sheetX + 27, y0 + 35, sheetX + 27, y1);

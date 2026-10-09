@@ -5,7 +5,7 @@
 
 import { add, cross, dot, length, normalize, scale, sub } from '../math/vec3.js';
 
-export const FIELD_OF_VIEW_RAD = (30 * Math.PI) / 180;
+const FIELD_OF_VIEW_RAD = (30 * Math.PI) / 180;
 // Orbit speed: full turn per this many viewport heights
 const TURN_PER_HEIGHTS = 1;
 // Zoom factor per wheel pixel (deltaY in pixels)

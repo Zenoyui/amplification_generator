@@ -53,7 +53,6 @@ export function defaultsOf(specs) {
   return Object.fromEntries(specs.map((spec) => [spec.key, spec.default]));
 }
 
-// Meters back to the display unit of a spec
 export function toDisplay(spec, value_m) {
   return Quantity.of(value_m, 'm').in(spec.unit);
 }

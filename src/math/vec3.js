@@ -21,16 +21,3 @@ export function normalize(a) {
   return [a[0] / len, a[1] / len, a[2] / len];
 }
 
-// Rotates vector about unit axis by angle_rad (Rodrigues)
-export function rotateAbout(v, axisUnit, angle_rad) {
-  const c = Math.cos(angle_rad);
-  const s = Math.sin(angle_rad);
-  const kxv = cross(axisUnit, v);
-  const kdv = dot(axisUnit, v) * (1 - c);
-  return [
-    v[0] * c + kxv[0] * s + axisUnit[0] * kdv,
-    v[1] * c + kxv[1] * s + axisUnit[1] * kdv,
-    v[2] * c + kxv[2] * s + axisUnit[2] * kdv,
-  ];
-}
-

@@ -3,7 +3,7 @@
 import { TEMPLATES, findTemplate, templateDefaults, buildModel, featureSpecs, availableFeatureKinds, ADDED_VOLUME_REFUSE } from '../geometry/model.js';
 import { resolveParams, defaultsOf } from '../geometry/params.js';
 import { MATERIALS, findMaterial, checkMaterial } from '../fea/materials.js';
-import { QUALITY, DIRECTIONS, directionVector, estimateSolidVolume } from '../fea/analysis.js';
+import { QUALITY, DIRECTIONS, directionVector, estimateAddedShare } from '../fea/analysis.js';
 import { parseQuantity, DIM, STANDARD_GRAVITY_MPS2, SiError, Quantity } from '../si/units.js';
 import { startJob } from '../workers/client.js';
 import { summarize } from '../report/summary.js';
@@ -52,6 +52,7 @@ class App {
       baseline: null,
       current: null,
       stale: false,
+      inputVersion: 0,
       fieldMode: 'mises',
     };
     this.baseRows = {};
@@ -152,10 +153,13 @@ class App {
           onChange: (choice) => {
             custom.kind = choice;
             this.#markStale();
+            this.#renderProduct();
           },
         }).row,
       );
+      const unused = custom.kind === 'ductile' ? ['tensile', 'compressive'] : ['yield'];
       for (const [key, [label, unit]] of Object.entries(TEXT.product.customFields)) {
+        if (unused.includes(key)) continue;
         box.append(inputRow({ label, unit, text: custom[key], onInput: (text) => { custom[key] = text; this.#markStale(); } }).row);
       }
     } else {
@@ -263,9 +267,10 @@ class App {
     );
     const container = el('div');
     body.append(container);
-    const baseline = this.state.baseline;
-    const comparison = baseline && this.state.features.length > 0 && baseline !== current ? { before: baseline.summary, after: current.summary } : null;
+    const baseline = this.#validBaseline();
+    const comparison = baseline ? { before: baseline.summary, after: current.summary } : null;
     renderResult(container, current.summary, comparison);
+    if (current.features.length > 0 && !baseline) body.append(el('p', { class: 'hint' }, TEXT.result.noBaseline));
   }
 
   #renderReinforcement() {
@@ -405,6 +410,7 @@ class App {
   }
 
   #changeTemplate(id) {
+    if (this.jobs.analysis) this.#cancelAnalysis();
     this.state.templateId = id;
     this.state.baseRaw = templateDefaults(id);
     this.state.features = [];
@@ -423,6 +429,7 @@ class App {
   }
 
   #markStale() {
+    this.state.inputVersion++;
     if (!this.state.current || this.state.stale) return;
     this.state.stale = true;
     this.viewport.clearField();
@@ -481,9 +488,7 @@ class App {
     const model = this.state.model;
     if (!model || this.state.features.length === 0) return 0;
     const baseModel = buildModel(this.state.templateId, this.state.baseRaw, []).model;
-    const withFeatures = estimateSolidVolume(model);
-    const without = estimateSolidVolume(baseModel);
-    return without > 0 ? withFeatures / without - 1 : 0;
+    return estimateAddedShare(model, baseModel);
   }
 
   #updateAddedVolume() {
@@ -513,6 +518,10 @@ class App {
       estimates: [],
     };
     if (material.kind === 'brittle') material.yield_pa = 0;
+    else {
+      material.tensile_pa = material.yield_pa;
+      material.compressive_pa = material.yield_pa;
+    }
     const problems = checkMaterial(material);
     if (problems.length) throw new Error(`material: ${problems.join('; ')}`);
     return material;
@@ -565,6 +574,7 @@ class App {
       return;
     }
     const spec = this.#spec();
+    const version = this.state.inputVersion;
     this.runButton.disabled = true;
     this.cancelButton.hidden = false;
     const started = performance.now();
@@ -574,7 +584,7 @@ class App {
     job.promise
       .then((analysis) => {
         if (this.jobs.analysis !== job) return;
-        this.#analysisDone(analysis, spec, started);
+        this.#analysisDone(analysis, spec, started, version);
       })
       .catch((error) => this.#fail(error))
       .finally(() => {
@@ -598,13 +608,22 @@ class App {
     this.#setStatus('Расчет прерван', false);
   }
 
-  #analysisDone(analysis, spec, started) {
+  // Result of the part without reinforcements, only when its inputs equal those of the current result
+  #validBaseline() {
+    const { baseline, current } = this.state;
+    if (!baseline || !current || baseline === current || this.state.features.length === 0) return null;
+    return baseline.key === current.key ? baseline : null;
+  }
+
+  #analysisDone(analysis, spec, started, version) {
     const { required, material } = this.setupSnapshot;
     const summary = summarize(analysis, material, required);
-    const record = { analysis, summary, material, required, spec, features: this.state.features.map((f) => ({ ...f, raw: { ...f.raw } })), setup: this.setupSnapshot.setup };
+    const setup = this.setupSnapshot.setup;
+    const key = JSON.stringify({ templateId: spec.templateId, base: spec.base, setup });
+    const record = { analysis, summary, material, required, spec, features: this.state.features.map((f) => ({ ...f, raw: { ...f.raw } })), setup, key };
     this.state.current = record;
     if (this.state.features.length === 0) this.state.baseline = record;
-    this.state.stale = false;
+    this.state.stale = version !== this.state.inputVersion;
     this.#setStatus(`Расчет: ${formatNumber((performance.now() - started) / 1000, 3)} с, итераций ${analysis.solve.status.iterations}`, false);
     this.#renderResult();
     this.#showField();
@@ -629,7 +648,7 @@ class App {
         const open = out.edges.open + out.edges.overshared;
         this.docStatus.textContent = `STL: ${out.triangleCount} треугольников, ячейка ${formatNumber(out.cell_m * 1000, 3)} мм, объем ${formatNumber(out.volume_m3 * 1e9, 4)} мм3${open > 0 ? `, ребер без пары: ${open}` : ''}`;
       })
-      .catch((error) => this.#fail(error));
+      .catch((error) => this.#fail(error, 'documents'));
   }
 
   async #downloadPdf() {
@@ -642,9 +661,8 @@ class App {
     try {
       const { buildReport } = await import('../report/document.js');
       const bytes = await buildReport({
-        state: this.state,
         record,
-        baseline: this.state.baseline,
+        baseline: this.#validBaseline(),
         withDrawings: this.drawingsCheck.input.checked,
         viewport: this.viewport,
         onStatus: (text) => {
@@ -654,7 +672,7 @@ class App {
       saveBlob(new Blob([bytes], { type: 'application/pdf' }), `raschet-${this.state.templateId}.pdf`);
       this.docStatus.textContent = `PDF: ${Math.round(bytes.length / 1024)} КБ`;
     } catch (error) {
-      this.#fail(error);
+      this.#fail(error, 'documents');
     }
   }
 
@@ -670,6 +688,7 @@ class App {
       if (/number expected/.test(text)) return 'Поле массы: требуется число и единица, например "50 кг".';
       if (/unit unknown/.test(text)) return 'Поле массы: единица не распознана. Допустимы кг, г, Н, кН, кгс.';
       if (/unit mismatch/.test(text)) return 'Поле массы: требуется масса или сила.';
+      if (/not finite/.test(text)) return 'Поле массы: значение вне допустимого диапазона.';
     }
     if (/^material:/.test(text)) return `Материал: ${text.slice(10)}`;
     if (/^required safety/.test(text)) return 'Требуемый запас: число больше нуля.';
@@ -679,14 +698,20 @@ class App {
     return text;
   }
 
-  #fail(error) {
+  // target: 'run' for the status under the run button, 'documents' for the documents section
+  #fail(error, target = 'run') {
     const text = error.message;
     let message = text;
     if (/support: too few nodes/.test(text)) message = 'Закрепление не содержит узлов: уменьшить ячейку или изменить размеры.';
     else if (/thin feature/.test(text)) message = 'Элемент тоньше одной ячейки: выбрать качество выше или увеличить толщину.';
     else if (/load patch: too few surface nodes/.test(text)) message = 'Точка нагрузки не лежит на поверхности: указать точку на модели заново.';
+    else if (/^model: invalid/.test(text)) message = 'Размеры вне допустимых границ: исправить поля с ошибкой.';
+    if (target === 'documents') {
+      this.docStatus.textContent = message;
+      return;
+    }
     this.#setStatus(message, true);
-    this.docStatus && (this.docStatus.textContent = '');
+    if (this.docStatus) this.docStatus.textContent = '';
   }
 }
 

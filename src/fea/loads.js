@@ -5,7 +5,7 @@ import { WEIGHT_CUTOFF } from './grid.js';
 import { cornerMaterialShares } from './element.js';
 
 // Smallest patch radius in cells; below this the load concentrates on too few nodes
-export const MIN_PATCH_CELLS = 1.5;
+const MIN_PATCH_CELLS = 1.5;
 // Nodes farther than this many cells from the surface are not patch candidates
 const SURFACE_BAND_CELLS = 0.9;
 // Patch nodes must lie within this many cells of the tangent plane at the picked point
@@ -85,7 +85,6 @@ export function addSelfWeight(grid, element, b, density_kgpm3, gravityDir) {
   }
 }
 
-// Material volume in m3 from cell weights
 export function cellVolume(grid) {
   let sum = 0;
   const cellVolume_m3 = grid.cell_m[0] * grid.cell_m[1] * grid.cell_m[2];

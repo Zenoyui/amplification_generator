@@ -6,7 +6,7 @@ import { limitStresses } from './materials.js';
 
 // Equivalent stresses at or below this fraction of the limit stress give safety factor 'unbounded'
 const UNBOUNDED_RATIO = 1e-9;
-export const SAFETY_UNBOUNDED = Infinity;
+const SAFETY_UNBOUNDED = Infinity;
 
 export const THEORIES = [
   { id: 'I', name: 'Первая теория (наибольших нормальных напряжений)', formula: 'sigma_экв = sigma_1; при сжатии |sigma_3| сравнивается с пределом при сжатии' },
@@ -110,7 +110,7 @@ export function evaluateFields(stress_pa, count, excluded, inside, surface, mate
 // by more than SPREAD_LIMIT relative to the smaller value
 const SPREAD_LIMIT = 0.15;
 
-export function findContradictions(summary, material, requiredSafety) {
+function findContradictions(summary, material, requiredSafety) {
   const found = [];
   const ids = THEORIES.map((t) => t.id);
   const governing = governingTheories(material);

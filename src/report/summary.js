@@ -7,15 +7,17 @@ import { formatNumber, formatPercent, formatSafety } from '../ui/format.js';
 const MM_PER_M = 1000;
 const MPA = 1e6;
 // Cells per smallest radius below which the peak stress is reported as under-resolved
-export const RADIUS_CELLS_LIMIT = 5;
+const RADIUS_CELLS_LIMIT = 5.5;
 // Cells across the thinnest feature below which the stiffness is reported as under-resolved
-export const THICKNESS_CELLS_LIMIT = 3;
+const THICKNESS_CELLS_LIMIT = 3;
 // Relative change of the peak stress between two cell sizes above which it is reported as not converged
-export const STRESS_CONVERGENCE_LIMIT = 0.1;
-// Raw peak above the reported peak by this ratio is reported
-const RAW_PEAK_RATIO = 1.1;
+const STRESS_CONVERGENCE_LIMIT = 0.1;
+// Raw peak above the reported peak by this ratio is reported and enters the verdict
+const RAW_PEAK_RATIO = 1.03;
+// Maximum displacement above this share of the largest dimension makes the linear small-displacement model invalid
+const DISPLACEMENT_LIMIT = 0.05;
 
-export const primaryTheory = (material) => (material.kind === 'ductile' ? 'IV' : 'V');
+const primaryTheory = (material) => (material.kind === 'ductile' ? 'IV' : 'V');
 
 const pointText = (point_m) => (point_m ? `(${point_m.map((v) => formatNumber(v * MM_PER_M, 3)).join('; ')}) мм` : 'нет данных');
 
@@ -41,6 +43,11 @@ export function summarize(analysis, material, requiredSafety) {
     };
   });
 
+  const grid = solve.grid;
+  const extent_m = Math.max(...grid.counts.map((n, a) => n * grid.cell_m[a]));
+  const displacementShare = s.maxDisplacement_m / extent_m;
+  const rawPeak_pa = s.rawPeakMises_pa;
+  const rawSafety = material.kind === 'ductile' && rawPeak_pa > 0 ? material.yield_pa / rawPeak_pa : null;
   const notes = [];
   if (!solve.status.converged) {
     notes.push({ level: 'fail', text: `Решение не сошлось: относительная невязка ${solve.status.relativeResidual.toExponential(1).replace('.', ',')} за ${solve.status.iterations} итераций. Результаты ненадежны.` });
@@ -49,7 +56,7 @@ export function summarize(analysis, material, requiredSafety) {
   if (resolution.cellsPerSmallestRadius !== null && resolution.cellsPerSmallestRadius < RADIUS_CELLS_LIMIT) {
     notes.push({
       level: 'warn',
-      text: `Наименьший радиус занимает ${formatNumber(resolution.cellsPerSmallestRadius, 2)} ячейки. При 4-6 ячейках на радиус пиковое напряжение занижено на 3-17 процентов (проверка на пластине с отверстием). Выбрать качество выше.`,
+      text: `Наименьший радиус занимает ${formatNumber(resolution.cellsPerSmallestRadius, 2)} ячейки. На пластине с отверстием пиковое напряжение занижено на ${radiusDeficit(resolution.cellsPerSmallestRadius)}. Выбрать качество выше.`,
     });
   }
   if (resolution.cellsAcrossThinnest < THICKNESS_CELLS_LIMIT) {
@@ -58,10 +65,23 @@ export function summarize(analysis, material, requiredSafety) {
   if (convergence && Math.abs(convergence.stressChange) > STRESS_CONVERGENCE_LIMIT) {
     notes.push({ level: 'warn', text: `Пиковое напряжение изменилось на ${formatPercent(convergence.stressChange)} при укрупнении ячейки в 1,5 раза: по сетке не сошлось. Ближайшая причина: острый внутренний угол или радиус меньше 5 ячеек.` });
   }
-  if (s.rawPeakMises_pa > RAW_PEAK_RATIO * s.theories.IV.peakEquivalent_pa) {
-    notes.push({ level: 'warn', text: `У закрепления или площадки нагрузки напряжение по теории IV достигает ${formatNumber(s.rawPeakMises_pa / MPA, 3)} МПа в точке ${pointText(s.rawPeakPoint_m)}; зона в один слой ячеек исключена из определения пика.` });
+  const rawAbove = rawPeak_pa > RAW_PEAK_RATIO * s.theories.IV.peakEquivalent_pa;
+  if (rawAbove) {
+    notes.push({ level: 'warn', text: `У закрепления или площадки нагрузки напряжение по теории IV достигает ${formatNumber(rawPeak_pa / MPA, 3)} МПа в точке ${pointText(s.rawPeakPoint_m)}; зона в один слой ячеек исключена из пика в таблице. Значение в этой зоне зависит от размера ячейки и входит в вывод о прочности.` });
   }
+  if (displacementShare > DISPLACEMENT_LIMIT) {
+    notes.push({ level: 'fail', text: `Максимальное перемещение ${formatNumber(s.maxDisplacement_m * MM_PER_M, 3)} мм составляет ${formatPercent(displacementShare)} наибольшего размера изделия. Модель малых перемещений неприменима.` });
+  }
+  const invalidReason = !solve.status.converged ? 'решение не сошлось' : displacementShare > DISPLACEMENT_LIMIT ? 'перемещения превышают границу линейной модели' : null;
+  const passesOutside = safety >= requiredSafety;
+  const passesRaw = rawSafety === null || !rawAbove || rawSafety >= requiredSafety;
   return {
+    valid: invalidReason === null,
+    invalidReason,
+    rawPeak_mpa: rawPeak_pa / MPA,
+    rawPeakPoint_m: s.rawPeakPoint_m,
+    rawSafety,
+    rawAbove,
     primaryId: primary,
     mass_kg: s.mass_kg,
     maxDisplacement_mm: s.maxDisplacement_m * MM_PER_M,
@@ -70,7 +90,8 @@ export function summarize(analysis, material, requiredSafety) {
     peakPoint_m: primaryEntry.peakPoint_m,
     safety,
     requiredSafety,
-    passes: safety >= requiredSafety,
+    passes: invalidReason === null && passesOutside && passesRaw,
+    passesOutside,
     theories,
     contradictions: s.contradictions.map((c) => describeContradiction(c, requiredSafety)),
     notes,
@@ -93,6 +114,13 @@ export function summarize(analysis, material, requiredSafety) {
       supportNodes: s.supportNodes,
     },
   };
+}
+
+// Peak stress deficit measured on a plate with a hole (README, accuracy table)
+function radiusDeficit(cells) {
+  if (cells < 3.5) return '26 % и более';
+  if (cells < 5.5) return 'от 17 % (4,3 ячейки) до 3 % (6,4 ячейки)';
+  return '3 % и менее';
 }
 
 function describeContradiction(c, requiredSafety) {
