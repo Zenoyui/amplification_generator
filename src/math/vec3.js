@@ -10,11 +10,6 @@ export const cross = (a, b) => [
   a[0] * b[1] - a[1] * b[0],
 ];
 export const length = (a) => Math.hypot(a[0], a[1], a[2]);
-export const lerp = (a, b, t) => [
-  a[0] + (b[0] - a[0]) * t,
-  a[1] + (b[1] - a[1]) * t,
-  a[2] + (b[2] - a[2]) * t,
-];
 
 // Lengths below this count as the zero vector
 const ZERO_LENGTH = 1e-300;
@@ -39,4 +34,3 @@ export function rotateAbout(v, axisUnit, angle_rad) {
   ];
 }
 
-export const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);

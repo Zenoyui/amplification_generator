@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'">
+  <link rel="icon" href="data:,">
+  <title>Расчет прочности изделия</title>
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <h1>Расчет прочности изделия</h1>
+      <p>Статический расчет методом конечных элементов. Усиления: ребра, косынки, скругления, бобышки, бортики.</p>
+    </header>
+    <main class="document" id="document"></main>
+    <div class="viewport" id="viewport"></div>
+  </div>
+  <noscript>Требуется JavaScript.</noscript>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

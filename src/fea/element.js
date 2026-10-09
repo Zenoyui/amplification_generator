@@ -133,15 +133,10 @@ function condense(kuu, kua, kaa) {
 const SUB_POSITION = [0.25 - 0.25 * GAUSS, 0.25 + 0.25 * GAUSS, 0.75 - 0.25 * GAUSS, 0.75 + 0.25 * GAUSS];
 
 // Sub-cube index s = ix + 4 iy + 16 iz; its centre is at (i + 0.5) / 4 of the cell
-export const SUB_CENTER_OFFSET = SUB_POSITION.map((p, i) => (i + 0.5) / 4 - p);
 
-// Builds the reference element for cell sizes h_m = [hx, hy, hz] (meters) and Poisson ratio.
-//   ke        24 x 24 condensed stiffness (E = 1)
-//   stressB   8 gauss points x 6 x 24: D B
-//   stressG   8 gauss points x 6 x 9: D G
-//   q         9 x 24 mode recovery, modes = -q u
-//   extrap    8 x 8: corner values = extrap * gauss values
-//   sub       sample tables for cut cells
+// Reference element for cell sizes h_m = [hx, hy, hz] (meters), E = 1: ke 24 x 24 condensed stiffness,
+// stressB 8 x 6 x 24 (D B) and stressG 8 x 6 x 9 (D G) at gauss points, q 9 x 24 (modes = -q u),
+// extrap 8 x 8 (corner values = extrap * gauss values), sub: sample tables for cut cells
 export function buildElement(h_m, poisson) {
   const d = constitutive(1, poisson);
   const detJ = (h_m[0] * h_m[1] * h_m[2]) / 8;

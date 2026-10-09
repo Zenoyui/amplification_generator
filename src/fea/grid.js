@@ -14,10 +14,6 @@ const BAND_FACTOR = 2;
 export const SOLID_WEIGHT = 0.5;
 const GRADIENT_ZERO = 1e-12;
 
-export function nodeIndex(counts, i, j, k) {
-  return (k * (counts[1] + 1) + j) * (counts[0] + 1) + i;
-}
-
 // sdf(x_m, y_m, z_m) -> distance in meters. Returns grid with node field phi and cell weights.
 export function sampleGrid(sdf, min_m, cell_m, counts) {
   const [nx, ny, nz] = counts;

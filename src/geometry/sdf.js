@@ -116,9 +116,27 @@ export function roundUnion(a, b, radius_m) {
   };
 }
 
-// Plain union when radius is not positive, round union otherwise
-export function joinWithFillet(a, b, radius_m) {
-  return radius_m > 0 ? roundUnion(a, b, radius_m) : union(a, b);
+// Union with fillets of radius r, applied only inside `zone` (a signed distance field). A round union also
+// thickens coplanar faces and convex corners where the bodies overlap, so the added material is cut to the zone
+// that contains the intended concave junction.
+export function joinWithFillet(a, b, radius_m, zone) {
+  if (!(radius_m > 0)) return union(a, b);
+  return union(union(a, b), intersect(roundUnion(a, b, radius_m), zone));
+}
+
+// Region of a revolved rectangle: points whose (radial distance from the z axis, z) lie in the 2D box
+export function revolvedBox(radialMin_m, radialMax_m, zMin_m, zMax_m) {
+  const cr = (radialMin_m + radialMax_m) / 2;
+  const cz = (zMin_m + zMax_m) / 2;
+  const hr = (radialMax_m - radialMin_m) / 2;
+  const hz = (zMax_m - zMin_m) / 2;
+  return (x, y, z) => {
+    const dr = Math.abs(Math.hypot(x, y) - cr) - hr;
+    const dz = Math.abs(z - cz) - hz;
+    const or = dr > 0 ? dr : 0;
+    const oz = dz > 0 ? dz : 0;
+    return Math.sqrt(or * or + oz * oz) + Math.min(Math.max(dr, dz), 0);
+  };
 }
 
 // Outward unit normal by central differences (step in meters)

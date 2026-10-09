@@ -1,6 +1,6 @@
 // Lever with an eye: ring at the origin with a bore (pin support), tapered handle along +x, plate thickness t along z
 
-import { boxFromCorners, cylinder, extrudePolygon, joinWithFillet, subtract, mergeBounds, unionAll } from '../sdf.js';
+import { boxFromCorners, cylinder, extrudePolygon, intersect, joinWithFillet, revolvedBox, subtract, mergeBounds, unionAll } from '../sdf.js';
 import { numberSpec, enumSpec } from '../params.js';
 
 const SIDES = [
@@ -17,6 +17,8 @@ const params = [
   numberSpec('thickness_m', 'Толщина', 6, 2, 40),
 ];
 
+const handlePolygon = (b) => [[0, -b.rootWidth_m / 2], [b.handleLength_m, -b.tipWidth_m / 2], [b.handleLength_m, b.tipWidth_m / 2], [0, b.rootWidth_m / 2]];
+
 const halfWidthAt = (b, x) => (b.rootWidth_m + (b.tipWidth_m - b.rootWidth_m) * (x / b.handleLength_m)) / 2;
 
 const filletSpecs = (b) => [numberSpec('radius_m', 'Радиус скругления шейки', Math.max(1, Math.round(b.ringRadius_m * 1000 * 0.4)), 0.5, 60)];
@@ -31,7 +33,7 @@ const bossSpecs = (b) => [
 const bossCheck = (b, v) => {
   const problems = [];
   if (v.outerRadius_m <= b.boreRadius_m) problems.push('радиус бобышки не больше радиуса отверстия');
-  if (v.outerRadius_m > b.ringRadius_m + 1e-9) problems.push('радиус бобышки больше радиуса проушины');
+  if (v.outerRadius_m + v.root_m > b.ringRadius_m + 1e-9) problems.push('радиус бобышки с радиусом у основания больше радиуса проушины');
   return problems;
 };
 
@@ -65,6 +67,13 @@ function zRanges(b, v) {
   return ranges;
 }
 
+// Zones for fillets of an added feature: bands of height root_m on the chosen sides, within footprint box
+function bandZone(b, v, footprint) {
+  const bands = [[b.thickness_m, b.thickness_m + v.root_m]];
+  if (v.side === 'both') bands.push([-v.root_m, 0]);
+  return unionAll(bands.map(([lo, hi]) => boxFromCorners([footprint.min[0], footprint.min[1], lo], [footprint.max[0], footprint.max[1], hi])));
+}
+
 function bossSolid(b, v) {
   const ranges = zRanges(b, v);
   const shapes = ranges.map(([lo, hi]) => cylinder('z', [0, 0, (lo + hi) / 2], v.outerRadius_m, (hi - lo) / 2));
@@ -74,6 +83,7 @@ function bossSolid(b, v) {
       min: [-v.outerRadius_m, -v.outerRadius_m, Math.min(...ranges.map((r) => r[0]))],
       max: [v.outerRadius_m, v.outerRadius_m, Math.max(...ranges.map((r) => r[1]))],
     },
+    zone: bandZone(b, v, { min: [-v.outerRadius_m - v.root_m, -v.outerRadius_m - v.root_m], max: [v.outerRadius_m + v.root_m, v.outerRadius_m + v.root_m] }),
   };
 }
 
@@ -93,7 +103,13 @@ function edgeRibSolid(b, v) {
     }
   }
   const half = halfWidthAt(b, xs);
-  return { sdf: unionAll(shapes), bounds: { min: [xs, -half, zMin], max: [xe, half, zMax] } };
+  const handlePlan = extrudePolygon('xy', handlePolygon(b), [-1, 1]);
+  const footprint = { min: [xs, -half - v.root_m], max: [xe, half + v.root_m] };
+  return {
+    sdf: unionAll(shapes),
+    bounds: { min: [xs, -half, zMin], max: [xe, half, zMax] },
+    zone: intersect(bandZone(b, v, footprint), handlePlan),
+  };
 }
 
 function centerRibSolid(b, v) {
@@ -104,6 +120,7 @@ function centerRibSolid(b, v) {
   return {
     sdf: unionAll(shapes),
     bounds: { min: [xs, -v.thickness_m / 2, Math.min(...zs.map((r) => r[0]))], max: [xe, v.thickness_m / 2, Math.max(...zs.map((r) => r[1]))] },
+    zone: bandZone(b, v, { min: [xs, -v.thickness_m / 2 - v.root_m], max: [xe, v.thickness_m / 2 + v.root_m] }),
   };
 }
 
@@ -127,9 +144,10 @@ export const lever = {
   },
   build(b, featureList) {
     const ring = cylinder('z', [0, 0, b.thickness_m / 2], b.ringRadius_m, b.thickness_m / 2);
-    const handle = extrudePolygon('xy', [[0, -b.rootWidth_m / 2], [b.handleLength_m, -b.tipWidth_m / 2], [b.handleLength_m, b.tipWidth_m / 2], [0, b.rootWidth_m / 2]], [0, b.thickness_m]);
-    const neckRadius_m = featureList.filter((f) => f.kind === 'fillet').reduce((m, f) => Math.max(m, f.values.radius_m), 0);
-    let sdf = joinWithFillet(ring, handle, neckRadius_m);
+    const handle = extrudePolygon('xy', handlePolygon(b), [0, b.thickness_m]);
+    const neckRadius_m = featureList.filter((f) => f.kind === 'fillet').reduce((m, f) => Math.max(m, f.parameters.radius_m), 0);
+    const neckZone = intersect(revolvedBox(b.ringRadius_m, b.ringRadius_m + 2.5 * neckRadius_m, 0, b.thickness_m), boxFromCorners([0, -1, -1], [1, 1, 1]));
+    let sdf = joinWithFillet(ring, handle, neckRadius_m, neckZone);
     const half = Math.max(b.ringRadius_m, b.rootWidth_m / 2, b.tipWidth_m / 2);
     const boundsList = [{ min: [-b.ringRadius_m, -half, 0], max: [b.handleLength_m, half, b.thickness_m] }];
     let minFeature_m = Math.min(b.thickness_m, b.tipWidth_m, b.ringRadius_m - b.boreRadius_m);
@@ -137,12 +155,12 @@ export const lever = {
     for (const feature of featureList) {
       if (feature.kind === 'fillet') continue;
       const builder = { boss: bossSolid, flange: edgeRibSolid, rib: centerRibSolid }[feature.kind];
-      const solid = builder(b, feature.values);
-      sdf = joinWithFillet(sdf, solid.sdf, feature.values.root_m);
+      const solid = builder(b, feature.parameters);
+      sdf = joinWithFillet(sdf, solid.sdf, feature.parameters.root_m, solid.zone);
       boundsList.push(solid.bounds);
-      const thin = feature.values.thickness_m ?? feature.values.height_m;
+      const thin = feature.parameters.thickness_m ?? feature.parameters.height_m;
       minFeature_m = Math.min(minFeature_m, thin);
-      if (feature.values.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.values.root_m);
+      if (feature.parameters.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.parameters.root_m);
     }
     const bore = cylinder('z', [0, 0, b.thickness_m / 2], b.boreRadius_m, 10 * b.thickness_m + 1);
     sdf = subtract(sdf, bore);

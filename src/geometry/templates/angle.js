@@ -54,6 +54,7 @@ function gussetSolid(b, v) {
   return {
     sdf: extrudePolygon('yz', polygon, [xc - v.thickness_m / 2, xc + v.thickness_m / 2]),
     bounds: { min: [xc - v.thickness_m / 2, tw - overlap, ta - overlap], max: [xc + v.thickness_m / 2, tw + v.legArm_m, ta + v.legWall_m] },
+    zone: boxFromCorners([xc - v.thickness_m / 2 - v.root_m, tw, ta], [xc + v.thickness_m / 2 + v.root_m, tw + v.legArm_m, ta + v.legWall_m]),
   };
 }
 
@@ -65,6 +66,7 @@ function flangeSolid(b, v) {
   return {
     sdf: union(left, right),
     bounds: { min: [0, yLo, ta], max: [b.width_m, b.armLength_m, ta + v.height_m] },
+    zone: boxFromCorners([0, yLo, ta], [b.width_m, b.armLength_m, ta + v.root_m]),
   };
 }
 
@@ -83,18 +85,19 @@ export const angle = {
   build(b, featureList) {
     const wall = boxFromCorners([0, 0, 0], [b.width_m, b.wallThickness_m, b.wallHeight_m]);
     const arm = boxFromCorners([0, 0, 0], [b.width_m, b.armLength_m, b.armThickness_m]);
-    const cornerRadius_m = featureList.filter((f) => f.kind === 'fillet').reduce((m, f) => Math.max(m, f.values.radius_m), 0);
-    let sdf = joinWithFillet(wall, arm, cornerRadius_m);
+    const cornerRadius_m = featureList.filter((f) => f.kind === 'fillet').reduce((m, f) => Math.max(m, f.parameters.radius_m), 0);
+    const cornerZone = boxFromCorners([0, b.wallThickness_m, b.armThickness_m], [b.width_m, b.wallThickness_m + cornerRadius_m, b.armThickness_m + cornerRadius_m]);
+    let sdf = joinWithFillet(wall, arm, cornerRadius_m, cornerZone);
     const boundsList = [{ min: [0, 0, 0], max: [b.width_m, b.armLength_m, b.wallHeight_m] }];
     let minFeature_m = Math.min(b.wallThickness_m, b.armThickness_m);
     let minRadius_m = cornerRadius_m > 0 ? cornerRadius_m : Infinity;
     for (const feature of featureList) {
       if (feature.kind === 'fillet') continue;
-      const solid = feature.kind === 'gusset' ? gussetSolid(b, feature.values) : flangeSolid(b, feature.values);
-      sdf = joinWithFillet(sdf, solid.sdf, feature.values.root_m);
+      const solid = feature.kind === 'gusset' ? gussetSolid(b, feature.parameters) : flangeSolid(b, feature.parameters);
+      sdf = joinWithFillet(sdf, solid.sdf, feature.parameters.root_m, solid.zone);
       boundsList.push(solid.bounds);
-      minFeature_m = Math.min(minFeature_m, feature.values.thickness_m);
-      if (feature.values.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.values.root_m);
+      minFeature_m = Math.min(minFeature_m, feature.parameters.thickness_m);
+      if (feature.parameters.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.parameters.root_m);
     }
     const tipOffset_m = Math.min(0.12 * b.armLength_m, 0.02);
     return {

@@ -75,8 +75,8 @@ export function nodePosition(grid, n) {
   return [grid.min_m[0] + i * grid.cell_m[0], grid.min_m[1] + j * grid.cell_m[1], grid.min_m[2] + k * grid.cell_m[2]];
 }
 
-// spec: { sdf, bounds_m, cellSize_m, maxCells (grid cells), maxActiveCells (cells with material), minFeature_m, material, supports: [support spec], loads: [...],
-//   selfWeight, gravityDir, requiredSafety, onProgress }
+// spec: { sdf, bounds_m, cellSize_m, maxCells (grid cells), maxActiveCells (cells with material), minFeature_m, material,
+//   supports: [support spec], loads, selfWeight, gravityDir, requiredSafety, onProgress }
 // loads[i]: { point_m, outwardNormal, force_n, radius_m }
 export function solveStatic(spec) {
   const progress = spec.onProgress ?? (() => {});
@@ -198,9 +198,9 @@ export function solveStatic(spec) {
   const pointOf = (where) => {
     if (where === null) return null;
     if (where.n !== undefined) return nodePosition(grid, where.n);
-    const a = nodePosition(grid, where.n0);
-    const b = nodePosition(grid, where.n1);
-    return a.map((v, axis) => v + where.t * (b[axis] - v));
+    const from = nodePosition(grid, where.n0);
+    const to = nodePosition(grid, where.n1);
+    return from.map((v, axis) => v + where.t * (to[axis] - v));
   };
   const theories = Object.fromEntries(
     Object.entries(fields.summary).map(([id, entry]) => [id, { ...entry, point_m: pointOf(entry.where), peakPoint_m: pointOf(entry.peakWhere) }]),

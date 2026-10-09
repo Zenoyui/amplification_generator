@@ -1,6 +1,6 @@
 // Post on a square base plate, base bottom face (z = 0) fixed, post axis along z
 
-import { boxFromCorners, cylinder, extrudePolygon, joinWithFillet, rotatedAboutZ, mergeBounds, unionAll } from '../sdf.js';
+import { boxFromCorners, cylinder, extrudePolygon, joinWithFillet, revolvedBox, rotatedAboutZ, mergeBounds, unionAll } from '../sdf.js';
 import { numberSpec, enumSpec } from '../params.js';
 
 const params = [
@@ -58,6 +58,7 @@ function gussetSolid(b, v) {
   return {
     sdf: unionAll(shapes),
     bounds: { min: [-reach, -reach, tb - overlap], max: [reach, reach, tb + v.legPost_m] },
+    zone: boxFromCorners([-reach - v.root_m, -reach - v.root_m, tb], [reach + v.root_m, reach + v.root_m, tb + v.legPost_m]),
   };
 }
 
@@ -79,18 +80,19 @@ export const post = {
     const half = b.baseSide_m / 2;
     const base = boxFromCorners([-half, -half, 0], [half, half, b.baseThickness_m]);
     const column = cylinder('z', [0, 0, b.height_m / 2], b.postRadius_m, b.height_m / 2);
-    const cornerRadius_m = featureList.filter((f) => f.kind === 'fillet').reduce((m, f) => Math.max(m, f.values.radius_m), 0);
-    let sdf = joinWithFillet(base, column, cornerRadius_m);
+    const cornerRadius_m = featureList.filter((f) => f.kind === 'fillet').reduce((m, f) => Math.max(m, f.parameters.radius_m), 0);
+    const cornerZone = revolvedBox(b.postRadius_m, b.postRadius_m + cornerRadius_m, b.baseThickness_m, b.baseThickness_m + cornerRadius_m);
+    let sdf = joinWithFillet(base, column, cornerRadius_m, cornerZone);
     const boundsList = [{ min: [-half, -half, 0], max: [half, half, b.height_m] }];
     let minFeature_m = Math.min(b.baseThickness_m, 2 * b.postRadius_m);
     let minRadius_m = Math.min(b.postRadius_m, cornerRadius_m > 0 ? cornerRadius_m : Infinity);
     for (const feature of featureList) {
       if (feature.kind === 'fillet') continue;
-      const solid = gussetSolid(b, feature.values);
-      sdf = joinWithFillet(sdf, solid.sdf, feature.values.root_m);
+      const solid = gussetSolid(b, feature.parameters);
+      sdf = joinWithFillet(sdf, solid.sdf, feature.parameters.root_m, solid.zone);
       boundsList.push(solid.bounds);
-      minFeature_m = Math.min(minFeature_m, feature.values.thickness_m);
-      if (feature.values.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.values.root_m);
+      minFeature_m = Math.min(minFeature_m, feature.parameters.thickness_m);
+      if (feature.parameters.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.parameters.root_m);
     }
     const sideOffset_m = Math.min(0.1 * b.height_m, 0.02);
     return {

@@ -36,9 +36,11 @@ function ribSolid(base, v) {
   const yc = base.width_m / 2 + v.offset_m;
   const zLo = v.side === 'bottom' ? -v.height_m : base.height_m;
   const zHi = v.side === 'bottom' ? 0 : base.height_m + v.height_m;
+  const zone = v.side === 'bottom' ? [-v.root_m, 0] : [base.height_m, base.height_m + v.root_m];
   return {
     sdf: boxFromCorners([0, yc - v.thickness_m / 2, zLo], [v.length_m, yc + v.thickness_m / 2, zHi]),
     bounds: { min: [0, yc - v.thickness_m / 2, zLo], max: [v.length_m, yc + v.thickness_m / 2, zHi] },
+    zone: boxFromCorners([0, yc - v.thickness_m / 2 - v.root_m, zone[0]], [v.length_m, yc + v.thickness_m / 2 + v.root_m, zone[1]]),
   };
 }
 
@@ -56,11 +58,11 @@ export const beam = {
     let minFeature_m = Math.min(base.width_m, base.height_m);
     let minRadius_m = Infinity;
     for (const feature of featureList) {
-      const solid = ribSolid(base, feature.values);
-      sdf = joinWithFillet(sdf, solid.sdf, feature.values.root_m);
+      const solid = ribSolid(base, feature.parameters);
+      sdf = joinWithFillet(sdf, solid.sdf, feature.parameters.root_m, solid.zone);
       boundsList.push(solid.bounds);
-      minFeature_m = Math.min(minFeature_m, feature.values.thickness_m);
-      if (feature.values.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.values.root_m);
+      minFeature_m = Math.min(minFeature_m, feature.parameters.thickness_m);
+      if (feature.parameters.root_m > 0) minRadius_m = Math.min(minRadius_m, feature.parameters.root_m);
     }
     const tipOffset_m = Math.min(0.1 * base.length_m, 0.02);
     return {

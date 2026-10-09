@@ -170,8 +170,7 @@ export class Quantity {
 
 const NUMBER_PATTERN = /^\s*([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d+)?)\s*(\S*)\s*$/;
 
-// Parses "12.5 mm", "12,5мм", "50 кг". Bare number takes defaultUnit.
-// wantDim: expected Dim; mass is accepted for force fields by the caller via parseLoad
+// Parses "12.5 mm", "12,5мм", "50 кг". A bare number takes defaultUnit.
 export function parseQuantity(text, defaultUnit) {
   const match = NUMBER_PATTERN.exec(String(text));
   if (!match) throw new SiError(`number expected (text=${String(text).slice(0, 32)})`);
@@ -179,7 +178,7 @@ export function parseQuantity(text, defaultUnit) {
   return Quantity.of(amount, match[2] === '' ? defaultUnit : match[2]);
 }
 
-// Parses text and requires the dimension of wantUnit
+// Parses text and requires the dimension of defaultUnit
 export function parseAs(text, defaultUnit) {
   const quantity = parseQuantity(text, defaultUnit);
   const want = findUnit(defaultUnit).dim;

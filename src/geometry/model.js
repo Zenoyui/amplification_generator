@@ -10,7 +10,6 @@ export const TEMPLATES = [beam, angle, lever, post];
 
 // Added volume above this share of the base volume is refused; above WARN_SHARE a warning is issued
 export const ADDED_VOLUME_REFUSE = 0.5;
-export const ADDED_VOLUME_WARN = 0.25;
 
 export function findTemplate(id) {
   const template = TEMPLATES.find((t) => t.id === id);
@@ -45,35 +44,35 @@ export function buildModel(templateId, raw, featureInputs) {
   const base = resolveParams(template.params, raw);
   const errors = base.errors.map((e) => ({ scope: 'base', ...e }));
   if (errors.length === 0) {
-    for (const message of template.checkBase?.(base.values) ?? []) errors.push({ scope: 'base', key: '', label: 'Размеры', message });
+    for (const message of template.checkBase?.(base.parameters) ?? []) errors.push({ scope: 'base', key: '', label: 'Размеры', message });
   }
   const features = [];
   if (errors.length === 0) {
     for (const input of featureInputs) {
       const def = template.features[input.kind];
-      const specs = def.specs(base.values);
+      const specs = def.specs(base.parameters);
       const resolved = resolveParams(specs, input.raw);
       for (const e of resolved.errors) errors.push({ scope: input.id, kind: input.kind, ...e });
       if (resolved.errors.length === 0) {
-        for (const message of def.check(base.values, resolved.values)) {
+        for (const message of def.check(base.parameters, resolved.parameters)) {
           errors.push({ scope: input.id, kind: input.kind, key: '', label: def.name, message });
         }
       }
-      features.push({ id: input.id, kind: input.kind, name: def.name, specs, values: resolved.values });
+      features.push({ id: input.id, kind: input.kind, name: def.name, specs, parameters: resolved.parameters });
     }
   }
-  if (errors.length > 0) return { model: null, errors, base_m: base.values, features };
-  const built = template.build(base.values, features);
-  const baseOnly = template.build(base.values, []);
+  if (errors.length > 0) return { model: null, errors, base_m: base.parameters, features };
+  const built = template.build(base.parameters, features);
+  const baseOnly = template.build(base.parameters, []);
   const model = {
     templateId,
     templateName: template.name,
-    base_m: base.values,
+    base_m: base.parameters,
     baseSpecs: template.params,
     features,
     baseSdf: baseOnly.sdf,
     baseBounds_m: baseOnly.bounds_m,
     ...built,
   };
-  return { model, errors, base_m: base.values, features };
+  return { model, errors, base_m: base.parameters, features };
 }

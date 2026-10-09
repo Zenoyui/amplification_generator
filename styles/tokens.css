@@ -1,0 +1,23 @@
+/* Design tokens. The same values are listed in src/ui/tokens.js. */
+:root {
+  --paper: #FFFFFF;
+  --panel: #F2F2F2;
+  --rule: #BFBFBF;
+  --ink: #1E1E1E;
+  --ink-muted: #595959;
+  --accent: #2F5496;
+  --accent-dark: #1F3864;
+  --ok: #2E7D32;
+  --warn: #9C5700;
+  --fail: #C00000;
+  --font: Arial, "Liberation Sans", Helvetica, sans-serif;
+  --size-caption: 12px;
+  --size-body: 14px;
+  --size-lead: 16px;
+  --size-heading: 20px;
+  --size-title: 26px;
+  --radius-none: 0;
+  --radius-field: 2px;
+  --view-snap: 350ms ease-in-out;
+  --disabled-opacity: 0.45;
+}
