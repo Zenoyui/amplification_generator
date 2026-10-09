@@ -169,7 +169,13 @@ export class Viewport {
   #pick(e) {
     const [x, y, rect] = this.#ndc(e);
     const ray = this.camera.ray([x, y], rect.width / rect.height);
-    const hit = traceRay(this.model.sdf, ray.origin, ray.direction, this.camera.distance + 4 * this.camera.sceneRadius, PICK_TOLERANCE_RATIO * this.camera.sceneRadius);
+    const reach_m = this.camera.distance + 4 * this.camera.sceneRadius;
+    if (this.model.pick) {
+      const surface = this.model.pick(ray.origin, ray.direction, reach_m);
+      if (surface) this.onPick({ point_m: surface.point, outwardNormal: surface.outwardNormal });
+      return;
+    }
+    const hit = traceRay(this.model.sdf, ray.origin, ray.direction, reach_m, PICK_TOLERANCE_RATIO * this.camera.sceneRadius);
     if (!hit) return;
     this.onPick({ point_m: hit.point, outwardNormal: gradientNormal(this.model.sdf, hit.point, NORMAL_STEP_M) });
   }
@@ -183,7 +189,7 @@ export class Viewport {
     this.model = model;
   }
 
-  // display: worker result { positions, normals, flags, edges, bounds_m }
+  // display: worker result { positions, normals, reinforcement (0-255 per vertex), support (0 or 255), edges, bounds_m }
   setDisplay(display, keepCamera) {
     this.display = display;
     this.renderer.setSurface(display.positions, display.normals, this.#baseColors(display));
@@ -204,9 +210,9 @@ export class Viewport {
     const reinforcement = hexToRgb(COLORS.reinforcement);
     const support = hexToRgb(COLORS.support);
     for (let v = 0; v < count; v++) {
-      const flag = display.flags[v];
-      const color = flag & 2 ? support : flag & 1 ? reinforcement : model;
-      colors.set(color, 3 * v);
+      const share = display.reinforcement[v] / 255;
+      const base = display.support[v] ? support : model;
+      for (let c = 0; c < 3; c++) colors[3 * v + c] = base[c] + (reinforcement[c] - base[c]) * share;
     }
     return colors;
   }

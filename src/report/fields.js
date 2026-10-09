@@ -26,7 +26,8 @@ export function resultField(record, mode) {
   if (mode === 'safety') {
     const limit = Math.max(2 * record.required, SAFETY_SCALE_FLOOR);
     return {
-      nodal: { grid, scalars: nodes.safety[primary], present: nodes.count },
+      // unbounded safety (zero stress) is cut at the scale limit: interpolation of infinite values gives NaN
+      nodal: { grid, scalars: Float32Array.from(nodes.safety[primary], (n) => Math.min(n, limit)), present: nodes.count },
       range: [0, limit],
       reversed: true,
       title: `${TEXT.result.modes.safety} (теория ${primary})`,

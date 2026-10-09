@@ -5,7 +5,7 @@ import { Typesetter } from './layout.js';
 import { drawCover, drawPreface, drawContents } from './cover.js';
 import { renderFigures } from './figures.js';
 import { digestHex } from './fingerprint.js';
-import { buildModel } from '../geometry/model.js';
+import { modelOfSpec, specKey } from '../geometry/model.js';
 import { toDisplay } from '../geometry/params.js';
 import { formatNumber, unitLabel } from '../ui/format.js';
 import { TEXT } from '../ui/text.js';
@@ -42,8 +42,16 @@ function describeFeature(feature) {
   return { name: feature.name, text: parts.join('; ') };
 }
 
+// Rows of the dimensions table of an uploaded part
+function meshRows(model) {
+  const [x, y, z] = model.bounds_m.max;
+  const rows = [['Габарит по X', x], ['Габарит по Y', y], ['Габарит по Z', z]].map(([label, size_m]) => ({ label, value: formatNumber(size_m * 1000, 4), unit: 'мм' }));
+  rows.push({ label: 'Объем', value: formatNumber(model.volume_m3 * 1e6, 4), unit: 'см3' });
+  return rows;
+}
+
 function context(record, baseline, withDrawings, digest) {
-  const { model } = buildModel(record.spec.templateId, record.spec.base, record.spec.features);
+  const { model } = modelOfSpec(record.spec);
   const date = new Date();
   const pad = (v) => String(v).padStart(2, '0');
   return {
@@ -56,7 +64,8 @@ function context(record, baseline, withDrawings, digest) {
     selfWeight: record.setup.selfWeight,
     withDrawings,
     features: model.features.map(describeFeature),
-    baseRows: model.baseSpecs.map((spec) => ({ label: spec.label, value: formatNumber(toDisplay(spec, model.base_m[spec.key]), 4), unit: unitLabel(spec.unit) })),
+    uploaded: model.kind === 'mesh' ? { triangles: model.mesh.indices.length / 3, thickness_m: model.minFeature_m } : null,
+    baseRows: model.kind === 'mesh' ? meshRows(model) : model.baseSpecs.map((spec) => ({ label: spec.label, value: formatNumber(toDisplay(spec, model.base_m[spec.key]), 4), unit: unitLabel(spec.unit) })),
     supports: model.supports.map((s) => s.label),
     fingerprint: digest.hex,
     fingerprintName: digest.name,
@@ -139,7 +148,7 @@ function placeholderEntries(ctx) {
 // viewport: provides the display mesh. Returns Uint8Array with the PDF.
 export async function buildReport({ record, baseline, withDrawings, viewport, onStatus }) {
   onStatus('Подготовка данных');
-  const digest = await digestHex(JSON.stringify({ spec: record.spec, setup: record.setup, required: record.required }));
+  const digest = await digestHex(JSON.stringify({ spec: specKey(record.spec), setup: record.setup, required: record.required }));
   const ctx = context(record, baseline, withDrawings, digest);
   const fontBytes = await loadFonts();
 

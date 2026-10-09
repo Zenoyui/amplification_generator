@@ -13,6 +13,9 @@ const GRID_SHIFT = 0.371;
 // Cells of margin around the bounds
 const MARGIN_CELLS = 2;
 const JACOBI_SWEEPS = 24;
+// Distance blocks: nodes per side and the safety factor on the block reach
+const BLOCK_NODES = 4;
+const BLOCK_SAFETY = 1.5;
 
 // Eigen decomposition of a symmetric 3 x 3 matrix a (row-major, 9) by Jacobi rotations: returns { eigenvalues, eigenvectors }
 function eigenSymmetric3(a) {
@@ -77,6 +80,32 @@ function solveQef(samples) {
 
 // Builds the mesh. bounds_m = { min, max }, cell_m target size. Returns { positions (Float32, 3 per vertex),
 // indices (Uint32, 3 per triangle), cell_m }.
+// Node distances. Blocks of BLOCK_NODES nodes farther from the surface than the block reach get the distance at their
+// center: only the sign is read there (the sdf has Lipschitz constant near 1, BLOCK_SAFETY covers the excess).
+function fillDistances(phi, sdf, origin, size, [nx, ny, nz]) {
+  const sy = nx + 1;
+  const sz = sy * (ny + 1);
+  const reach = BLOCK_SAFETY * 0.5 * BLOCK_NODES * Math.hypot(...size);
+  for (let bk = 0; bk <= nz; bk += BLOCK_NODES) {
+    for (let bj = 0; bj <= ny; bj += BLOCK_NODES) {
+      for (let bi = 0; bi <= nx; bi += BLOCK_NODES) {
+        const i1 = Math.min(nx, bi + BLOCK_NODES);
+        const j1 = Math.min(ny, bj + BLOCK_NODES);
+        const k1 = Math.min(nz, bk + BLOCK_NODES);
+        const center = sdf(origin[0] + 0.5 * (bi + i1) * size[0], origin[1] + 0.5 * (bj + j1) * size[1], origin[2] + 0.5 * (bk + k1) * size[2]);
+        const far = Math.abs(center) > reach;
+        for (let k = bk; k <= k1; k++) {
+          for (let j = bj; j <= j1; j++) {
+            for (let i = bi; i <= i1; i++) {
+              phi[k * sz + j * sy + i] = far ? center : sdf(origin[0] + i * size[0], origin[1] + j * size[1], origin[2] + k * size[2]);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 export function dualContour(sdf, bounds_m, cell_m) {
   const lengths = bounds_m.max.map((hi, a) => hi - bounds_m.min[a]);
   const counts = lengths.map((len) => Math.max(1, Math.ceil(len / cell_m)) + 2 * MARGIN_CELLS);
@@ -86,23 +115,23 @@ export function dualContour(sdf, bounds_m, cell_m) {
   const sy = nx + 1;
   const sz = sy * (ny + 1);
   const phi = new Float32Array((nx + 1) * (ny + 1) * (nz + 1));
-  let p = 0;
-  for (let k = 0; k <= nz; k++) {
-    for (let j = 0; j <= ny; j++) {
-      for (let i = 0; i <= nx; i++) phi[p++] = sdf(origin[0] + i * size[0], origin[1] + j * size[1], origin[2] + k * size[2]);
-    }
-  }
+  fillDistances(phi, sdf, origin, size, [nx, ny, nz]);
   const step = NORMAL_STEP * Math.min(...size);
   const position = (i, j, k) => [origin[0] + i * size[0], origin[1] + j * size[1], origin[2] + k * size[2]];
-  const normalAt = (pt) => {
-    const gx = sdf(pt[0] + step, pt[1], pt[2]) - sdf(pt[0] - step, pt[1], pt[2]);
-    const gy = sdf(pt[0], pt[1] + step, pt[2]) - sdf(pt[0], pt[1] - step, pt[2]);
-    const gz = sdf(pt[0], pt[1], pt[2] + step) - sdf(pt[0], pt[1], pt[2] - step);
+  // forward differences against the known distance at pt
+  const normalAt = (pt, distance) => {
+    const gx = sdf(pt[0] + step, pt[1], pt[2]) - distance;
+    const gy = sdf(pt[0], pt[1] + step, pt[2]) - distance;
+    const gz = sdf(pt[0], pt[1], pt[2] + step) - distance;
     const len = Math.hypot(gx, gy, gz) || 1;
     return [gx / len, gy / len, gz / len];
   };
   // crossing on the edge from node (i, j, k) along axis: fixed-slope Newton steps on the sdf, exact for planar faces
+  const crossingCache = new Map();
   const crossing = (i, j, k, axis) => {
+    const key = 3 * (k * sz + j * sy + i) + axis;
+    const cached = crossingCache.get(key);
+    if (cached) return cached;
     const a = position(i, j, k);
     const na = phi[k * sz + j * sy + i];
     const nb = phi[(k + (axis === 2 ? 1 : 0)) * sz + (j + (axis === 1 ? 1 : 0)) * sy + i + (axis === 0 ? 1 : 0)];
@@ -119,7 +148,9 @@ export function dualContour(sdf, bounds_m, cell_m) {
       t = Math.min(1, Math.max(0, t - distance / slope));
     }
     const point = at(t);
-    return { p: point, n: normalAt(point) };
+    const crossed = { p: point, n: normalAt(point, sdf(point[0], point[1], point[2])) };
+    crossingCache.set(key, crossed);
+    return crossed;
   };
 
   // cell vertices
@@ -143,7 +174,7 @@ export function dualContour(sdf, bounds_m, cell_m) {
         const vertex = solveQef(samples);
         for (let s = 0; s < PROJECT_STEPS; s++) {
           const distance = sdf(vertex[0], vertex[1], vertex[2]);
-          const normal = normalAt(vertex);
+          const normal = normalAt(vertex, distance);
           for (let a = 0; a < 3; a++) vertex[a] -= distance * normal[a];
         }
         for (let a = 0; a < 3; a++) {

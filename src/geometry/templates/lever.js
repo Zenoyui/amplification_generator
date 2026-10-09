@@ -25,7 +25,7 @@ const filletSpecs = (b) => [numberSpec('radius_m', 'Радиус скругле�
 const filletCheck = (b, v) => (v.radius_m > b.ringRadius_m * 2 ? ['радиус скругления больше диаметра проушины'] : []);
 
 const bossSpecs = (b) => [
-  numberSpec('outerRadius_m', 'Радиус бобышки', Math.max(3, Math.round(b.ringRadius_m * 1000 * 0.9)), 3, 80),
+  numberSpec('outerRadius_m', 'Радиус бобышки', Math.max(Math.round(b.boreRadius_m * 1000) + 2, Math.round(b.ringRadius_m * 1000) - 4), 3, 80),
   numberSpec('height_m', 'Высота бобышки', 3, 0.8, 30),
   enumSpec('side', 'Сторона', SIDES, 'both'),
   numberSpec('root_m', 'Радиус у основания', 1.5, 0, 10),

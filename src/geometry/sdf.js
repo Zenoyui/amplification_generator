@@ -70,10 +70,11 @@ export function extrudePolygon(plane, vertices, range_m) {
   const mapping = { xy: [0, 1, 2], yz: [1, 2, 0], zx: [2, 0, 1] }[plane];
   const mid = (range_m[0] + range_m[1]) / 2;
   const half = (range_m[1] - range_m[0]) / 2;
+  const [u, v, w] = mapping;
   return (x, y, z) => {
-    const p = [x, y, z];
-    const d2 = polygonDistance(vertices, p[mapping[0]], p[mapping[1]]);
-    const dz = Math.abs(p[mapping[2]] - mid) - half;
+    const coordinate = (axis) => (axis === 0 ? x : axis === 1 ? y : z);
+    const d2 = polygonDistance(vertices, coordinate(u), coordinate(v));
+    const dz = Math.abs(coordinate(w) - mid) - half;
     const o2 = d2 > 0 ? d2 : 0;
     const oz = dz > 0 ? dz : 0;
     return Math.sqrt(o2 * o2 + oz * oz) + Math.min(Math.max(d2, dz), 0);

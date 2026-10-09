@@ -4,11 +4,12 @@ import { solveStatic } from './solve.js';
 import { findMaterial } from './materials.js';
 import { gradientNormal } from '../geometry/sdf.js';
 
-// targetActive: cells with material aimed at; maxActive: cap; maxGrid: cap of grid cells including empty ones
+// targetActive: cells with material aimed at; maxActive: cap; maxGrid: cap of grid cells including empty ones;
+// cellsPerRadius: cells along the smallest radius that the cell size aims at
 export const QUALITY = {
-  draft: { label: 'Быстро', targetActive: 12000, maxActive: 30000, maxGrid: 400000 },
-  standard: { label: 'Стандарт', targetActive: 50000, maxActive: 100000, maxGrid: 1500000 },
-  fine: { label: 'Точно', targetActive: 120000, maxActive: 250000, maxGrid: 3000000 },
+  draft: { label: 'Быстро', cellsPerRadius: 4, targetActive: 12000, maxActive: 30000, maxGrid: 400000 },
+  standard: { label: 'Стандарт', cellsPerRadius: 5, targetActive: 50000, maxActive: 100000, maxGrid: 1500000 },
+  fine: { label: 'Точно', cellsPerRadius: 7, targetActive: 120000, maxActive: 250000, maxGrid: 3000000 },
 };
 
 export const DIRECTIONS = [
@@ -22,13 +23,14 @@ export const DIRECTIONS = [
 ];
 
 const GRAVITY_DIRECTION = [0, 0, -1];
-// Cells across the thinnest feature and per smallest radius that the cell size aims at
+// Cells across the thinnest feature that the cell size aims at
 const CELLS_ACROSS_FEATURE = 3;
-const CELLS_PER_RADIUS = 5;
 // Share of boundary cells on top of the interior cell count when estimating active cells
 const BOUNDARY_FACTOR = 1.3;
 // Samples per axis for the solid volume estimate
 const VOLUME_SAMPLES = 48;
+// Cell of a distance field built from a mesh, as a share of the solver cell
+const FIELD_CELL_SHARE = 2;
 // Cell size ratio of the coarse solve in the convergence check
 const CHECK_RATIO = 1.5;
 // Default load patch radius as a share of the largest model dimension, and its floor
@@ -64,6 +66,7 @@ function sampleBounds(bounds_m, visit) {
 
 // Material volume in m3 by regular sampling of the signed distance field
 function estimateSolidVolume(model) {
+  if (model.volume_m3) return model.volume_m3;
   let inside = 0;
   const cell_m3 = sampleBounds(model.bounds_m, (x, y, z) => {
     if (model.sdf(x, y, z) < 0) inside++;
@@ -87,7 +90,7 @@ export function chooseCellSize(model, qualityId) {
   if (!quality) throw new Error(`quality unknown (id=${qualityId})`);
   const budget_m = Math.cbrt((BOUNDARY_FACTOR * estimateSolidVolume(model)) / quality.targetActive);
   const featureLimit_m = model.minFeature_m / CELLS_ACROSS_FEATURE;
-  const radiusLimit_m = Number.isFinite(model.minRadius_m) ? model.minRadius_m / CELLS_PER_RADIUS : Infinity;
+  const radiusLimit_m = Number.isFinite(model.minRadius_m) ? model.minRadius_m / quality.cellsPerRadius : Infinity;
   return { cellSize_m: Math.min(budget_m, featureLimit_m, radiusLimit_m), maxCells: quality.maxGrid, maxActiveCells: quality.maxActive };
 }
 
@@ -101,7 +104,7 @@ export function resolveLoad(model, load) {
   const preset = load.presetId ? model.loadPresets.find((p) => p.id === load.presetId) : null;
   if (load.presetId && !preset) throw new Error(`load preset unknown (id=${load.presetId})`);
   const point_m = preset ? preset.point_m : load.point_m;
-  const outwardNormal = preset ? preset.outwardNormal : gradientNormal(model.sdf, point_m, NORMAL_STEP_M);
+  const outwardNormal = preset ? preset.outwardNormal : load.outwardNormal ?? gradientNormal(model.sdf, point_m, NORMAL_STEP_M);
   const direction = directionVector(load.direction, outwardNormal);
   return {
     point_m,
@@ -132,29 +135,14 @@ function solveWith(model, setup, loadSpec, size, onProgress) {
   });
 }
 
-// setup: { material (record) or materialId, selfWeight, requiredSafety, quality, load, convergenceCheck }
+// setup: { material (record) or materialId, selfWeight, requiredSafety, quality, load }
 export function analyze(model, setup, onProgress = () => {}) {
   const material = setup.material ?? findMaterial(setup.materialId);
   const full = { ...setup, material };
-  const loadSpec = resolveLoad(model, setup.load);
   const size = chooseCellSize(model, setup.quality);
-  const doCheck = setup.convergenceCheck && setup.quality !== 'draft';
-  const mainShare = doCheck ? 0.75 : 1;
-  const main = solveWith(model, full, loadSpec, size, (p) => onProgress({ ...p, fraction: p.fraction * mainShare }));
-
-  let convergence = null;
-  if (doCheck) {
-    const coarse = solveWith(model, full, loadSpec, { ...size, cellSize_m: Math.max(...main.grid.cell_m) * CHECK_RATIO, maxActiveCells: undefined }, (p) => onProgress({ ...p, stage: 'check', fraction: mainShare + p.fraction * (1 - mainShare) }));
-    const governing = main.summary.governing[0];
-    const peakFine = main.summary.theories[governing].peakEquivalent_pa;
-    const peakCoarse = coarse.summary.theories[governing].peakEquivalent_pa;
-    if (coarse.status.converged) {
-      convergence = {
-        displacementChange: (main.summary.maxDisplacement_m - coarse.summary.maxDisplacement_m) / main.summary.maxDisplacement_m,
-        stressChange: peakFine > 0 ? (peakFine - peakCoarse) / peakFine : 0,
-      };
-    }
-  }
+  model.attachField?.(size.cellSize_m / FIELD_CELL_SHARE);
+  const loadSpec = resolveLoad(model, setup.load);
+  const main = solveWith(model, full, loadSpec, size, onProgress);
   const cell_m = main.grid.cell_m;
   const hMax = Math.max(...cell_m);
   const resolution = {
@@ -162,6 +150,33 @@ export function analyze(model, setup, onProgress = () => {}) {
     cellsAcrossThinnest: model.minFeature_m / hMax,
     cellsPerSmallestRadius: Number.isFinite(model.minRadius_m) ? model.minRadius_m / hMax : null,
   };
-  return { solve: main, convergence, resolution, load: loadSpec, setup: { ...full, load: undefined }, quality: setup.quality };
+  return { solve: main, convergence: null, resolution, load: loadSpec, setup: { ...full, load: undefined }, quality: setup.quality };
 }
 
+// Solve on a cell CHECK_RATIO times larger, run next to analyze() (another worker): peaks to compare with the main result
+export function analyzeCheck(model, setup, onProgress = () => {}) {
+  const material = setup.material ?? findMaterial(setup.materialId);
+  const full = { ...setup, material };
+  const size = chooseCellSize(model, setup.quality);
+  model.attachField?.(size.cellSize_m / FIELD_CELL_SHARE);
+  const loadSpec = resolveLoad(model, setup.load);
+  const coarse = solveWith(model, full, loadSpec, { ...size, cellSize_m: size.cellSize_m * CHECK_RATIO, maxActiveCells: undefined }, onProgress);
+  return {
+    cell_m: coarse.grid.cell_m,
+    converged: coarse.status.converged,
+    maxDisplacement_m: coarse.summary.maxDisplacement_m,
+    peaks_pa: Object.fromEntries(Object.entries(coarse.summary.theories).map(([id, entry]) => [id, entry.peakEquivalent_pa])),
+  };
+}
+
+// Changes of displacement and governing peak stress from the coarse to the main solve; null when the check did not converge
+export function convergenceOf(main, check) {
+  if (!check || !check.converged) return null;
+  const governing = main.summary.governing[0];
+  const peakFine = main.summary.theories[governing].peakEquivalent_pa;
+  return {
+    ratio: Math.max(...check.cell_m) / Math.max(...main.grid.cell_m),
+    displacementChange: (main.summary.maxDisplacement_m - check.maxDisplacement_m) / main.summary.maxDisplacement_m,
+    stressChange: peakFine > 0 ? (peakFine - check.peaks_pa[governing]) / peakFine : 0,
+  };
+}

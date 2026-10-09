@@ -5,6 +5,7 @@ import { angle } from './templates/angle.js';
 import { lever } from './templates/lever.js';
 import { post } from './templates/post.js';
 import { resolveParams, defaultsOf } from './params.js';
+import { buildUploadModel } from './uploadmodel.js';
 
 export const TEMPLATES = [beam, angle, lever, post];
 
@@ -75,4 +76,17 @@ export function buildModel(templateId, raw, featureInputs) {
     ...built,
   };
   return { model, errors, base_m: base.parameters, features };
+}
+
+// Model of a page spec: { templateId, base, features } or an uploaded part { templateId: 'upload', upload }
+export function modelOfSpec(spec) {
+  if (spec.templateId === 'upload') return { model: buildUploadModel(spec.upload), errors: [] };
+  return buildModel(spec.templateId, spec.base, spec.features);
+}
+
+// Spec without the mesh, for keys and fingerprints: an uploaded part is represented by its hash
+export function specKey(spec) {
+  if (spec.templateId !== 'upload') return spec;
+  const { mesh, ...rest } = spec.upload;
+  return { ...spec, upload: { ...rest, hash: spec.upload.hash, triangles: mesh.indices.length / 3 } };
 }

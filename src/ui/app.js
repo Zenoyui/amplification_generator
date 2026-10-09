@@ -1,9 +1,11 @@
 // Page controller: state, sections, jobs
 
-import { TEMPLATES, findTemplate, templateDefaults, buildModel, featureSpecs, availableFeatureKinds, ADDED_VOLUME_REFUSE } from '../geometry/model.js';
+import { TEMPLATES, findTemplate, templateDefaults, buildModel, modelOfSpec, featureSpecs, availableFeatureKinds, ADDED_VOLUME_REFUSE } from '../geometry/model.js';
+import { UNITS } from '../geometry/upload.js';
+import { digestHex } from '../report/fingerprint.js';
 import { resolveParams, defaultsOf } from '../geometry/params.js';
 import { MATERIALS, findMaterial, checkMaterial } from '../fea/materials.js';
-import { QUALITY, DIRECTIONS, directionVector, estimateAddedShare } from '../fea/analysis.js';
+import { QUALITY, DIRECTIONS, directionVector, estimateAddedShare, convergenceOf } from '../fea/analysis.js';
 import { parseQuantity, DIM, STANDARD_GRAVITY_MPS2, SiError, Quantity } from '../si/units.js';
 import { startJob } from '../workers/client.js';
 import { summarize } from '../report/summary.js';
@@ -19,6 +21,11 @@ const REBUILD_DELAY_MS = 150;
 const DEFAULT_REQUIRED_SAFETY = 1.5;
 const DEFAULT_MASS_TEXT = '50 кг';
 const CUSTOM_PRESET = 'custom';
+const UPLOAD_ID = 'upload';
+const NEXT_QUALITY = { draft: 'standard', standard: 'fine' };
+const FACES = ['x-', 'x+', 'y-', 'y+', 'z-', 'z+'];
+// Default radius of a picked support area as a share of the longest model side
+const AREA_RADIUS_SHARE = 0.06;
 
 const parseDecimal = (text) => Number(String(text).trim().replace(',', '.'));
 
@@ -47,6 +54,8 @@ class App {
       requiredText: String(DEFAULT_REQUIRED_SAFETY).replace('.', ','),
       quality: 'standard',
       features: [],
+      upload: null,
+      pickTarget: 'load',
       nextFeatureId: 1,
       model: null,
       baseline: null,
@@ -57,7 +66,7 @@ class App {
     };
     this.baseRows = {};
     this.featureRows = {};
-    this.jobs = { display: null, analysis: null };
+    this.jobs = { display: null, analysis: null, check: null, upload: null };
     this.fitNext = true;
   }
 
@@ -106,13 +115,18 @@ class App {
       el('h3', {}, TEXT.product.kind),
       radioList({
         name: 'template',
-        options: TEMPLATES.map((t) => ({ value: t.id, label: t.name })),
+        options: [...TEMPLATES.map((t) => ({ value: t.id, label: t.name })), ...(this.state.upload?.prepared ? [{ value: UPLOAD_ID, label: `${TEXT.upload.template}: ${this.state.upload.name}` }] : [])],
         selected: this.state.templateId,
         onChange: (id) => this.#changeTemplate(id),
       }),
-      el('h3', {}, TEXT.product.sizes),
+      this.#fileChooser(),
     );
     this.baseRows = {};
+    if (this.state.templateId === UPLOAD_ID) {
+      body.append(el('h3', {}, TEXT.upload.title), this.#uploadPanel(), el('h3', {}, TEXT.product.material), this.#materialControls());
+      return;
+    }
+    body.append(el('h3', {}, TEXT.product.sizes));
     for (const spec of findTemplate(this.state.templateId).params) {
       const row = inputRow({
         label: spec.label,
@@ -127,6 +141,101 @@ class App {
       body.append(row.row);
     }
     body.append(el('h3', {}, TEXT.product.material), this.#materialControls());
+  }
+
+  #fileChooser() {
+    const input = el('input', { type: 'file', accept: '.stl,.STL', hidden: true, 'aria-label': TEXT.upload.choose });
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return;
+      this.state.upload = { name: file.name, buffer: await file.arrayBuffer(), unitId: 'mm', up: 'z', prepared: null, hash: null, face: 'z-', supportMode: 'face', area: null, areaRadiusText: '', message: TEXT.upload.busy };
+      this.#processUpload();
+      this.#renderProduct();
+    });
+    const button = el('button', { type: 'button', onclick: () => input.click() }, this.state.upload ? TEXT.upload.replace : TEXT.upload.choose);
+    return el('div', { class: 'upload-choice' }, el('div', { class: 'row' }, button, input), el('p', { class: 'hint' }, TEXT.upload.hint));
+  }
+
+  #processUpload() {
+    const upload = this.state.upload;
+    const unit = UNITS.find((u) => u.id === upload.unitId);
+    upload.message = TEXT.upload.busy;
+    this.jobs.upload?.cancel();
+    const job = startJob('upload', { buffer: upload.buffer.slice(0), scale_m: unit.scale_m, up: upload.up });
+    this.jobs.upload = job;
+    job.promise
+      .then(async (prepared) => {
+        if (this.jobs.upload !== job) return;
+        upload.prepared = prepared;
+        upload.message = '';
+        upload.hash = (await digestHex(new Uint8Array(prepared.mesh.positions.buffer.slice(0)))).hex;
+        const longest_mm = Math.max(...prepared.bounds_m.max) * 1000;
+        upload.areaRadiusText = String(Math.max(1, Math.round(AREA_RADIUS_SHARE * longest_mm)));
+        upload.area = null;
+        if (this.state.templateId !== UPLOAD_ID) this.#changeTemplate(UPLOAD_ID);
+        else this.#afterUploadChange();
+      })
+      .catch((error) => {
+        if (this.jobs.upload !== job) return;
+        upload.prepared = null;
+        upload.message = this.#uploadMessage(error);
+        this.#renderProduct();
+      });
+  }
+
+  #uploadMessage(error) {
+    const code = /^([a-z]+):/.exec(error.message)?.[1];
+    const text = TEXT.upload.errors[code];
+    return text ? `${text} (${error.message})` : error.message;
+  }
+
+  #afterUploadChange() {
+    this.state.baseline = null;
+    this.state.presetId = null;
+    this.#renderProduct();
+    this.#renderLoad();
+    this.#rebuildNow();
+    this.#renderReinforcement();
+    this.fitNext = true;
+  }
+
+  #uploadPanel() {
+    const upload = this.state.upload;
+    const box = el('div');
+    box.append(
+      selectRow({
+        label: TEXT.upload.unit,
+        options: UNITS.map((u) => ({ value: u.id, label: u.label })),
+        selected: upload.unitId,
+        onChange: (choice) => {
+          upload.unitId = choice;
+          this.#processUpload();
+          this.#markStale();
+        },
+      }).row,
+      selectRow({
+        label: TEXT.upload.up,
+        options: [{ value: 'z', label: 'Z' }, { value: 'y', label: 'Y' }],
+        selected: upload.up,
+        onChange: (choice) => {
+          upload.up = choice;
+          this.#processUpload();
+          this.#markStale();
+        },
+      }).row,
+    );
+    if (upload.message) box.append(el('p', { class: upload.prepared ? 'hint' : 'status fail' }, upload.message));
+    if (upload.prepared) {
+      const { report, thickness_m } = upload.prepared;
+      const rows = [
+        [TEXT.upload.size, `${report.size_m.map((v) => formatNumber(v * 1000, 4)).join(' x ')} мм`],
+        [TEXT.upload.volume, `${formatNumber(report.volume_m3 * 1e6, 4)} см3`],
+        [TEXT.upload.triangles, String(report.triangles)],
+        [TEXT.upload.thickness, !Number.isFinite(thickness_m) ? 'нет данных' : `${formatNumber(thickness_m * 1000, 3)} мм`],
+      ];
+      box.append(el('table', {}, el('tbody', {}, rows.map(([name, text]) => el('tr', {}, el('th', {}, name), el('td', {}, text))))));
+    }
+    return box;
   }
 
   #materialControls() {
@@ -188,7 +297,7 @@ class App {
         this.#markStale();
       },
     });
-    this.pickButton = el('button', { type: 'button', onclick: () => this.#togglePick() }, TEXT.load.pickPoint);
+    this.pickButton = el('button', { type: 'button', onclick: () => this.#togglePick('load') }, TEXT.load.pickPoint);
     body.append(this.pointSelect.row, el('div', { class: 'row' }, this.pickButton));
     this.pickStatus = el('p', { class: 'hint', hidden: true }, TEXT.load.picking);
     body.append(this.pickStatus);
@@ -209,7 +318,35 @@ class App {
     );
     this.supportLine = el('p', {}, '');
     body.append(el('h3', {}, TEXT.load.support), this.supportLine);
+    if (this.state.templateId === UPLOAD_ID && this.state.upload?.prepared) body.append(this.#supportControls());
     this.#updateSupportLine();
+  }
+
+  #supportControls() {
+    const upload = this.state.upload;
+    const size_m = upload.prepared.bounds_m.max;
+    const faceLabel = (id) => `${id[0]} = ${formatNumber((id[1] === '-' ? 0 : size_m['xyz'.indexOf(id[0])]) * 1000, 4)} мм`;
+    const options = [...FACES.map((id) => ({ value: id, label: `Плоскость ${faceLabel(id)}` })), ...(upload.area ? [{ value: 'area', label: TEXT.load.supportArea }] : [])];
+    const box = el('div');
+    box.append(
+      selectRow({
+        label: TEXT.load.supportFace,
+        options,
+        selected: upload.supportMode === 'area' && upload.area ? 'area' : upload.face,
+        onChange: (choice) => {
+          if (choice === 'area') upload.supportMode = 'area';
+          else {
+            upload.supportMode = 'face';
+            upload.face = choice;
+          }
+          this.#rebuildNow();
+          this.#renderLoad();
+        },
+      }).row,
+      el('div', { class: 'row' }, el('button', { type: 'button', onclick: () => this.#togglePick('support') }, TEXT.load.pickSupport)),
+      inputRow({ label: TEXT.load.supportRadius, unit: 'мм', text: upload.areaRadiusText, hint: TEXT.load.supportRadiusHint, onInput: (text) => { upload.areaRadiusText = text; this.#scheduleRebuild(); } }).row,
+    );
+    return box;
   }
 
   #updateSupportLine() {
@@ -270,12 +407,20 @@ class App {
     const baseline = this.#validBaseline();
     const comparison = baseline ? { before: baseline.summary, after: current.summary } : null;
     renderResult(container, current.summary, comparison);
+    const finer = NEXT_QUALITY[this.state.quality];
+    if (current.summary.needsFinerMesh && finer && !stale) {
+      container.append(el('button', { type: 'button', onclick: () => this.#runFiner(finer) }, `${TEXT.run.repeatWith} "${QUALITY[finer].label}"`));
+    }
     if (current.features.length > 0 && !baseline) body.append(el('p', { class: 'hint' }, TEXT.result.noBaseline));
   }
 
   #renderReinforcement() {
     const body = this.reinforcementBody;
     body.replaceChildren();
+    if (this.state.templateId === UPLOAD_ID) {
+      body.append(el('p', { class: 'hint' }, TEXT.upload.noReinforcement));
+      return;
+    }
     const template = findTemplate(this.state.templateId);
     const kinds = availableFeatureKinds(this.state.templateId, this.state.features);
     const select = el('select', { 'aria-label': TEXT.reinforcement.choose }, kinds.map((k) => el('option', { value: k.kind }, k.name)));
@@ -338,8 +483,29 @@ class App {
 
 
   #resolvedBase() {
+    if (this.state.templateId === UPLOAD_ID) return {};
     const { parameters, errors } = resolveParams(findTemplate(this.state.templateId).params, this.state.baseRaw);
     return errors.length === 0 ? parameters : null;
+  }
+
+  // Supports of an uploaded part from the state: a bounding box plane or a ball around a picked point
+  #uploadSupports() {
+    const upload = this.state.upload;
+    const size_m = upload.prepared.bounds_m.max;
+    if (upload.supportMode === 'area' && upload.area) {
+      const radius_mm = parseDecimal(upload.areaRadiusText);
+      const radius_m = Number.isFinite(radius_mm) && radius_mm > 0 ? radius_mm / 1000 : size_m[0] * AREA_RADIUS_SHARE;
+      const point = upload.area.map((v) => formatNumber(v * 1000, 4)).join('; ');
+      return [{ id: 'area', label: `Область радиусом ${formatNumber(radius_m * 1000, 3)} мм около точки (${point}) мм`, spec: { kind: 'sphere', center_m: upload.area, radius_m } }];
+    }
+    const axis = 'xyz'.indexOf(upload.face[0]);
+    const coord_m = upload.face[1] === '-' ? 0 : size_m[axis];
+    return [{ id: upload.face, label: `Плоскость ${upload.face[0]} = ${formatNumber(coord_m * 1000, 4)} мм`, spec: { kind: 'plane', axis, coord_m } }];
+  }
+
+  #uploadSpec() {
+    const { name, prepared, hash } = this.state.upload;
+    return { title: `${TEXT.upload.template} ${name}`, mesh: prepared.mesh, bounds_m: prepared.bounds_m, report: prepared.report, thickness_m: prepared.thickness_m, supports: this.#uploadSupports(), hash };
   }
 
   #featureInputs() {
@@ -347,6 +513,7 @@ class App {
   }
 
   #spec() {
+    if (this.state.templateId === UPLOAD_ID) return { templateId: UPLOAD_ID, base: {}, features: [], upload: this.#uploadSpec() };
     return { templateId: this.state.templateId, base: { ...this.state.baseRaw }, features: this.#featureInputs() };
   }
 
@@ -356,7 +523,7 @@ class App {
   }
 
   #rebuildNow() {
-    const { model, errors } = buildModel(this.state.templateId, this.state.baseRaw, this.#featureInputs());
+    const { model, errors } = modelOfSpec(this.#spec());
     for (const row of Object.values(this.baseRows)) row.setError('');
     for (const entry of Object.values(this.featureRows)) {
       entry.note.hidden = true;
@@ -379,7 +546,7 @@ class App {
     this.state.model = model;
     this.viewport.setModel(model);
     if (!this.state.presetId || (this.state.presetId !== CUSTOM_PRESET && !model.loadPresets.some((p) => p.id === this.state.presetId))) {
-      this.state.presetId = model.loadPresets[0].id;
+      this.state.presetId = model.loadPresets[0]?.id ?? (this.state.picked ? CUSTOM_PRESET : null);
       this.#renderLoad();
     }
     this.#updateSupportLine();
@@ -412,7 +579,7 @@ class App {
   #changeTemplate(id) {
     if (this.jobs.analysis) this.#cancelAnalysis();
     this.state.templateId = id;
-    this.state.baseRaw = templateDefaults(id);
+    this.state.baseRaw = id === UPLOAD_ID ? {} : templateDefaults(id);
     this.state.features = [];
     this.state.presetId = null;
     this.state.picked = null;
@@ -442,7 +609,7 @@ class App {
     if (!model) return null;
     if (this.state.presetId === CUSTOM_PRESET && this.state.picked) return this.state.picked;
     const preset = model.loadPresets.find((p) => p.id === this.state.presetId) ?? model.loadPresets[0];
-    return { point_m: preset.point_m, outwardNormal: preset.outwardNormal };
+    return preset ? { point_m: preset.point_m, outwardNormal: preset.outwardNormal } : null;
   }
 
   #updateLoadMarker() {
@@ -451,14 +618,24 @@ class App {
     this.viewport.setLoadMarker({ point_m: load.point_m, direction: directionVector(this.state.direction, load.outwardNormal) });
   }
 
-  #togglePick() {
-    const active = !this.viewport.pickMode;
+  #togglePick(target) {
+    const active = !this.viewport.pickMode || this.state.pickTarget !== target;
+    this.state.pickTarget = target;
     this.viewport.setPickMode(active);
-    this.pickButton.classList.toggle('active', active);
+    this.pickButton.classList.toggle('active', active && target === 'load');
     this.pickStatus.hidden = !active;
   }
 
   #picked(hit) {
+    if (this.state.pickTarget === 'support') {
+      this.state.pickTarget = 'load';
+      this.viewport.setPickMode(false);
+      this.state.upload.area = hit.point_m;
+      this.state.upload.supportMode = 'area';
+      this.#renderLoad();
+      this.#rebuildNow();
+      return;
+    }
     this.state.picked = hit;
     this.state.presetId = CUSTOM_PRESET;
     this.viewport.setPickMode(false);
@@ -543,9 +720,11 @@ class App {
     const radius = parseDecimal(this.state.patchText);
     if (!Number.isFinite(radius) || radius < 0) throw new Error('patch radius: number not below zero required');
     const point = this.#currentLoadPoint();
+    if (!point) throw new Error('load: point required');
     return {
       presetId: this.state.presetId === CUSTOM_PRESET ? null : this.state.presetId,
       point_m: this.state.presetId === CUSTOM_PRESET ? point.point_m : undefined,
+      outwardNormal: this.state.presetId === CUSTOM_PRESET ? point.outwardNormal : undefined,
       direction: this.state.direction,
       magnitude_n,
       massKg,
@@ -565,7 +744,6 @@ class App {
         selfWeight: this.state.selfWeight,
         requiredSafety: required,
         quality: this.state.quality,
-        convergenceCheck: true,
         load: this.#loadSetup(),
       };
       this.setupSnapshot = { required, material, setup };
@@ -580,18 +758,38 @@ class App {
     const started = performance.now();
     this.#setStatus('Сетка', false);
     const job = startJob('analyze', { spec, setup }, (info) => this.#setStatus(this.#progressText(info), false));
+    // the coarse solve of the convergence check runs in a second worker next to the main solve
+    const checkJob = setup.quality === 'draft' ? null : startJob('check', { spec, setup });
     this.jobs.analysis = job;
+    this.jobs.check = checkJob;
     job.promise
-      .then((analysis) => {
+      .then(async (analysis) => {
         if (this.jobs.analysis !== job) return;
+        if (checkJob) {
+          this.#setStatus(TEXT.run.stages.check, false);
+          const check = await checkJob.promise.catch(() => null);
+          if (this.jobs.analysis !== job) return;
+          analysis.convergence = convergenceOf(analysis.solve, check);
+        }
         this.#analysisDone(analysis, spec, started, version);
       })
-      .catch((error) => this.#fail(error))
+      .catch((error) => {
+        checkJob?.cancel();
+        this.#fail(error);
+      })
       .finally(() => {
-        if (this.jobs.analysis === job) this.jobs.analysis = null;
+        if (this.jobs.analysis !== job) return;
+        this.jobs.analysis = null;
+        this.jobs.check = null;
         this.runButton.disabled = false;
         this.cancelButton.hidden = true;
       });
+  }
+
+  #runFiner(quality) {
+    this.state.quality = quality;
+    this.#renderRun();
+    this.#runAnalysis();
   }
 
   #progressText(info) {
@@ -602,7 +800,9 @@ class App {
 
   #cancelAnalysis() {
     this.jobs.analysis?.cancel();
+    this.jobs.check?.cancel();
     this.jobs.analysis = null;
+    this.jobs.check = null;
     this.runButton.disabled = false;
     this.cancelButton.hidden = true;
     this.#setStatus('Расчет прерван', false);
@@ -619,7 +819,7 @@ class App {
     const { required, material } = this.setupSnapshot;
     const summary = summarize(analysis, material, required);
     const setup = this.setupSnapshot.setup;
-    const key = JSON.stringify({ templateId: spec.templateId, base: spec.base, setup });
+    const key = JSON.stringify({ templateId: spec.templateId, base: spec.base, setup, upload: spec.upload ? { hash: spec.upload.hash, supports: spec.upload.supports } : null });
     const record = { analysis, summary, material, required, spec, features: this.state.features.map((f) => ({ ...f, raw: { ...f.raw } })), setup, key };
     this.state.current = record;
     if (this.state.features.length === 0) this.state.baseline = record;
@@ -646,7 +846,7 @@ class App {
       .then((out) => {
         saveBlob(new Blob([out.bytes], { type: 'model/stl' }), `${this.state.templateId}-${this.state.features.length ? 'reinforced' : 'base'}.stl`);
         const open = out.edges.open + out.edges.overshared;
-        this.docStatus.textContent = `STL: ${out.triangleCount} треугольников, ячейка ${formatNumber(out.cell_m * 1000, 3)} мм, объем ${formatNumber(out.volume_m3 * 1e9, 4)} мм3${open > 0 ? `, ребер без пары: ${open}` : ''}`;
+        this.docStatus.textContent = `STL: ${out.triangleCount} треугольников, ${out.cell_m > 0 ? `ячейка ${formatNumber(out.cell_m * 1000, 3)} мм, ` : ''}объем ${formatNumber(out.volume_m3 * 1e9, 4)} мм3${open > 0 ? `, ребер без пары: ${open}` : ''}`;
       })
       .catch((error) => this.#fail(error, 'documents'));
   }
@@ -693,6 +893,7 @@ class App {
     if (/^material:/.test(text)) return `Материал: ${text.slice(10)}`;
     if (/^required safety/.test(text)) return 'Требуемый запас: число больше нуля.';
     if (/^patch radius/.test(text)) return 'Радиус площадки: число не меньше нуля.';
+    if (/^load: point/.test(text)) return 'Точка нагрузки не задана: указать точку на модели.';
     if (/^load:/.test(text)) return 'Нагрузка: значение больше нуля.';
     if (/^reinforcement:/.test(text)) return 'Усиление добавляет более половины объема изделия. Уменьшить размеры усиления.';
     return text;

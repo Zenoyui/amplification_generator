@@ -57,8 +57,8 @@ function controlTable(control) {
     ['Невязка равновесия реакций', control.equilibrium.toExponential(1).replace('.', ',')],
   ];
   if (conv) {
-    rows.push(['Изменение перемещения при укрупнении ячейки в 1,5 раза', `${formatNumber(conv.displacementChange * 100, 2)} %`]);
-    rows.push(['Изменение пикового напряжения при укрупнении ячейки в 1,5 раза', `${formatNumber(conv.stressChange * 100, 2)} %`]);
+    rows.push([`Изменение перемещения при укрупнении ячейки в ${formatNumber(conv.ratio, 2)} раза`, `${formatNumber(conv.displacementChange * 100, 2)} %`]);
+    rows.push([`Изменение пикового напряжения при укрупнении ячейки в ${formatNumber(conv.ratio, 2)} раза`, `${formatNumber(conv.stressChange * 100, 2)} %`]);
   }
   return el('table', {}, el('tbody', {}, rows.map(([name, text]) => el('tr', {}, el('th', {}, name), el('td', {}, text)))));
 }

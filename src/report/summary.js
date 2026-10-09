@@ -49,21 +49,25 @@ export function summarize(analysis, material, requiredSafety) {
   const rawPeak_pa = s.rawPeakMises_pa;
   const rawSafety = material.kind === 'ductile' && rawPeak_pa > 0 ? material.yield_pa / rawPeak_pa : null;
   const notes = [];
+  let needsFinerMesh = false;
   if (!solve.status.converged) {
     notes.push({ level: 'fail', text: `Решение не сошлось: относительная невязка ${solve.status.relativeResidual.toExponential(1).replace('.', ',')} за ${solve.status.iterations} итераций. Результаты ненадежны.` });
   }
   for (const warning of s.warnings) notes.push({ level: 'warn', text: WARNINGS[warning.code](warning) });
   if (resolution.cellsPerSmallestRadius !== null && resolution.cellsPerSmallestRadius < RADIUS_CELLS_LIMIT) {
+    needsFinerMesh = true;
     notes.push({
       level: 'warn',
       text: `Наименьший радиус занимает ${formatNumber(resolution.cellsPerSmallestRadius, 2)} ячейки. На пластине с отверстием пиковое напряжение занижено на ${radiusDeficit(resolution.cellsPerSmallestRadius)}. Выбрать качество выше.`,
     });
   }
   if (resolution.cellsAcrossThinnest < THICKNESS_CELLS_LIMIT) {
+    needsFinerMesh = true;
     notes.push({ level: 'warn', text: `Наименьшая толщина занимает ${formatNumber(resolution.cellsAcrossThinnest, 2)} ячейки. Выбрать качество выше.` });
   }
   if (convergence && Math.abs(convergence.stressChange) > STRESS_CONVERGENCE_LIMIT) {
-    notes.push({ level: 'warn', text: `Пиковое напряжение изменилось на ${formatPercent(convergence.stressChange)} при укрупнении ячейки в 1,5 раза: по сетке не сошлось. Ближайшая причина: острый внутренний угол или радиус меньше 5 ячеек.` });
+    needsFinerMesh = true;
+    notes.push({ level: 'warn', text: `Пиковое напряжение изменилось на ${formatPercent(convergence.stressChange)} при укрупнении ячейки в ${formatNumber(convergence.ratio, 2)} раза: по сетке не сошлось. Ближайшая причина: острый внутренний угол или радиус меньше 5 ячеек.` });
   }
   const rawAbove = rawPeak_pa > RAW_PEAK_RATIO * s.theories.IV.peakEquivalent_pa;
   if (rawAbove) {
@@ -76,6 +80,7 @@ export function summarize(analysis, material, requiredSafety) {
   const passesOutside = safety >= requiredSafety;
   const passesRaw = rawSafety === null || !rawAbove || rawSafety >= requiredSafety;
   return {
+    needsFinerMesh,
     valid: invalidReason === null,
     invalidReason,
     rawPeak_mpa: rawPeak_pa / MPA,

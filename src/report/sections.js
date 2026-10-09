@@ -258,8 +258,8 @@ export function writeReliability(ts, ctx) {
     ['Ячеек на наименьший радиус', c.cellsPerSmallestRadius === null ? 'радиусов нет' : formatNumber(c.cellsPerSmallestRadius, 3)],
   ];
   if (c.convergence) {
-    rows.push(['Изменение перемещения при укрупнении ячейки в 1,5 раза', formatPercent(c.convergence.displacementChange)]);
-    rows.push(['Изменение пикового напряжения при укрупнении ячейки в 1,5 раза', formatPercent(c.convergence.stressChange)]);
+    rows.push([`Изменение перемещения при укрупнении ячейки в ${formatNumber(c.convergence.ratio, 2)} раза`, formatPercent(c.convergence.displacementChange)]);
+    rows.push([`Изменение пикового напряжения при укрупнении ячейки в ${formatNumber(c.convergence.ratio, 2)} раза`, formatPercent(c.convergence.stressChange)]);
   }
   ts.table({ columns: [{ width: 120 }, { width: 50, align: 'right' }], header: ['Показатель', 'Значение'], rows, caption: 'Контроль решения' });
   if (ctx.summary.notes.length) {
@@ -295,6 +295,12 @@ export function writeLimitations(ts, ctx) {
     'Напряжение вблизи закрепления и площадки нагрузки зависит от размера ячейки и исключено из определения пика на один слой ячеек.',
     'Результат не заменяет испытание изделия и экспертизу.',
   ]);
+  if (ctx.uploaded) {
+    ts.list([
+      `Геометрия принята по поверхностной сетке файла STL (${ctx.uploaded.triangles} треугольников). Поле расстояний строится на сетке с ячейкой вдвое меньше расчетной; скругления и фаски меньше двух ячеек сглажены.`,
+      `Наименьшая толщина стенки ${formatNumber(ctx.uploaded.thickness_m * MM, 3)} мм оценена лучами из центров граней; радиусы скруглений по файлу не определяются, достаточность сетки у них оценивается проверкой сходимости (раздел ${ctx.section.reliability}).`,
+    ]);
+  }
   if (ctx.withDrawings) {
     ts.list([
       'Чертежи построены по поверхностной сетке; разрезы и сечения не построены.',
